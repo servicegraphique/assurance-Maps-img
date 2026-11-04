@@ -2,5 +2,8 @@
   "_aide": "Copiez ce fichier vers server.config.json (non versionné) puis collez votre jeton client Mapillary gratuit. Le jeton reste côté serveur : il n'est jamais envoyé au navigateur. Vous pouvez aussi utiliser la variable d'environnement MAPILLARY_TOKEN.",
   "_obtenir_un_jeton": "https://www.mapillary.com/dashboard/developers",
   "_alternative_sans_jeton": "Panoramax (IGN / OpenStreetMap France) fonctionne sans jeton et couvre déjà une grande partie de la France.",
-  "mapillaryToken": ""
+  "mapillaryToken": "",
+  "googleMapsEmbedKey": "",
+  "_aide_google": "Optionnel. Google Street View via l'API Maps Embed : gratuite et illimitée, mais Google exige un projet Cloud avec facturation activée. La clé reste côté serveur : elle n'est jamais envoyée au JavaScript public. Sans clé, Panoramax fournit une vue immersive 360° sans aucune inscription.",
+  "_obtenir_une_cle_google": "https://developers.google.com/maps/documentation/embed/get-api-key"
 }

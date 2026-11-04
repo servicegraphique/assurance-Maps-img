@@ -202,6 +202,47 @@ Sans jeton configuré, **aucune requête Mapillary n'est émise** : l'interface 
 
 ---
 
+## 6 bis. Vues immersives « Street View » 360°
+
+Trois sources, construites dans `js/streetview.js`. **Aucune n'est chargée avant un clic utilisateur.**
+
+### Panoramax — viewer officiel (sans clé)
+
+```
+https://api.panoramax.xyz/#focus=pic&pic={uuid}&xyz={cap}/{inclinaison}/{zoom}
+```
+
+| Paramètre | Plage | Rôle |
+|---|---|---|
+| `focus=pic` | — | la photographie occupe tout le cadre |
+| `pic` | UUID STAC | photographie affichée |
+| `xyz` | cap 0–360, inclinaison −90–90, zoom 0–100 | orientation initiale |
+
+`nav=none` est **volontairement omis** : le déplacement dans la séquence est l'intérêt de la vue immersive. L'identifiant provient de `features[].id` déjà récupéré par la recherche STAC — **aucune requête supplémentaire** n'est nécessaire pour construire l'URL.
+
+### Mapillary — embed public (sans jeton)
+
+```
+https://www.mapillary.com/embed?image_key={id}&style=photo
+```
+
+`style` ∈ `photo` | `split` | `classic`.
+
+> **Nuance importante** : l'**embed** ne demande aucun jeton, alors que l'**API Graph** (`graph.mapillary.com`) et les tuiles en exigent un. Un jeton reste donc nécessaire pour *trouver* les photos, pas pour les *afficher* en immersif.
+
+### Google Street View — API Maps Embed (clé gratuite, optionnelle)
+
+```
+https://www.google.com/maps/embed/v1/streetview
+  ?key={clé}&location={lat},{lon}&heading={cap}&pitch={inclinaison}&fov={10-100}&radius={m}
+```
+
+- **Tarification** : l'API **Maps Embed** est **gratuite, sans limite de requêtes** (ni QPS, ni quota journalier). Ce n'est pas l'API *Street View Static*, facturée elle au-delà de 10 000 appels/mois.
+- **Prérequis** : un projet Google Cloud avec **facturation activée**, l'API *Maps Embed* activée, et une clé restreinte à cette API et aux référents HTTP.
+- **La clé ne quitte jamais le serveur** : le navigateur demande `/api/streetview/embed`, le serveur répond `302` vers Google en ajoutant la clé.
+
+---
+
 ## 7. Relais local intégré (`server.js`)
 
 | Route | Rôle | Garde-fous |
@@ -210,6 +251,8 @@ Sans jeton configuré, **aucune requête Mapillary n'est émise** : l'interface 
 | `GET /api/proxy/entreprises/search?…` | Relais vers l'API Recherche d'entreprises | Origine figée, chemin `/search` uniquement, 12 req/s |
 | `GET /api/proxy/geocodage/search?…` et `/reverse?…` | Relais vers la Géoplateforme | Origine figée, chemins autorisés uniquement |
 | `GET /api/proxy/panoramax/search?…` | Relais vers Panoramax | Origine figée |
+| `GET /api/streetview/status` | Indique si une clé Google Embed est chargée (**booléen seulement**) | Ne renvoie jamais la clé |
+| `GET /api/streetview/embed?lat=&lon=&heading=&pitch=&fov=&radius=` | Redirige vers Google Street View en ajoutant la clé | 8 req/s, coordonnées obligatoires et bornées, `302` + `Referrer-Policy: no-referrer`, `501` sans clé |
 | `GET /api/mapillary/status` | Indique si un jeton est chargé (**booléen seulement**) | Ne renvoie jamais le jeton |
 | `GET /api/mapillary/images?bbox=…` | Proxy Mapillary authentifié | 5 req/s, timeout 15 s |
 | `GET /api/reload-token` | Recharge `server.config.json` à chaud | Aucun secret renvoyé |
@@ -217,6 +260,8 @@ Sans jeton configuré, **aucune requête Mapillary n'est émise** : l'interface 
 Sécurité du serveur statique : confinement au dossier du projet, refus des traversées de répertoire, **HTTP 403 sur `server.config.json` et `.env*`**, aucun listing de répertoire, en-têtes `X-Content-Type-Options: nosniff` et `Referrer-Policy: no-referrer`.
 
 Le relais n'est **pas un proxy ouvert** : impossible de lui faire interroger une autre origine ou un autre chemin que ceux déclarés dans `PUBLIC_PROXIES`.
+
+**Piège évité** : `Number(null)` vaut `0` en JavaScript. Un paramètre `lat` ou `lon` **absent** est explicitement refusé (`400`) au lieu d'être interprété comme la coordonnée 0 — sinon la vue s'ouvrirait dans le golfe de Guinée.
 
 ---
 

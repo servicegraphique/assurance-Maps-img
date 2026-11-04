@@ -15,12 +15,13 @@ Application web locale, en HTML5 / CSS3 / JavaScript Vanilla + Leaflet. Aucun fr
 5. [API utilisées, limites et licences](#5-api-utilisées-limites-et-licences)
 6. [Fiabilité des coordonnées GPS](#6-fiabilité-des-coordonnées-gps)
 7. [Authenticité des images](#7-authenticité-des-images)
-8. [Exports et presse-papiers](#8-exports-et-presse-papiers)
-9. [Données locales et confidentialité](#9-données-locales-et-confidentialité)
-10. [Tests](#10-tests)
-11. [Limites connues et alternatives gratuites](#11-limites-connues-et-alternatives-gratuites)
-12. [Dépannage](#12-dépannage)
-13. [Grille de validation](#13-grille-de-validation)
+8. [Vue immersive Street View 360°](#8-vue-immersive-street-view-360)
+9. [Exports et presse-papiers](#9-exports-et-presse-papiers)
+10. [Données locales et confidentialité](#10-données-locales-et-confidentialité)
+11. [Tests](#11-tests)
+12. [Limites connues et alternatives gratuites](#12-limites-connues-et-alternatives-gratuites)
+13. [Dépannage](#13-dépannage)
+14. [Grille de validation](#14-grille-de-validation)
 
 ---
 
@@ -230,6 +231,7 @@ company-locator/
 │   ├── geocoding.js            BAN / Géoplateforme + évaluation de la fiabilité GPS
 │   ├── map.js                  Leaflet : fonds, marqueurs, popups, plein écran, vue aérienne
 │   ├── images.js               Photographies de rue (Panoramax, Mapillary) + photos sourcées
+│   ├── streetview.js           Vues immersives 360° : sources, URL, qualification
 │   ├── storage.js              LocalStorage : paramètres, historique opt-in, favoris, cache
 │   ├── export.js               CSV, GeoJSON, JSON, presse-papiers
 │   ├── ui.js                   Rendu DOM (résultats, fiche, images, modales, lightbox)
@@ -248,10 +250,10 @@ company-locator/
 │   ├── API.md                  Détail des endpoints, paramètres et champs consommés
 │   └── VERIFICATION.md         Rapport de tests et périmètre réellement vérifié
 └── tests/
-    ├── unit/*.test.mjs         101 tests unitaires (node:test, sans réseau)
+    ├── unit/*.test.mjs         125 tests unitaires (node:test, sans réseau)
     ├── css.test.mjs            16 vérifications de cascade CSS (éléments masqués)
     ├── boot.test.mjs           14 vérifications du garde de démarrage
-    ├── dom.test.mjs            42 vérifications d'intégration DOM (jsdom + Leaflet réels)
+    ├── dom.test.mjs            52 vérifications d'intégration DOM (jsdom + Leaflet réels)
     ├── live-smoke.mjs          Test de fumée contre les VRAIES API (à lancer chez vous)
     └── fixtures/               Réponses d'API SYNTHÉTIQUES, jamais chargées par l'app
 ```
@@ -271,6 +273,9 @@ company-locator/
 | **OpenStreetMap** | `https://tile.openstreetmap.org/{z}/{x}/{y}.png` | non | [politique d'usage](https://operations.osmfoundation.org/policies/tiles/) | ODbL, attribution |
 | **Panoramax** (photos de rue) | `https://api.panoramax.xyz/api/search` | **non** | usage raisonnable | CC BY-SA 4.0 / Licence Ouverte selon l'instance |
 | **Mapillary** (photos de rue) | `https://graph.mapillary.com/images` | **oui, gratuit** | selon le jeton | CC BY-SA 4.0 |
+| **Panoramax 360°** (vue immersive) | `https://api.panoramax.xyz/#focus=pic&pic=…` | **non** | usage raisonnable | selon la séquence |
+| **Mapillary Embed** (vue immersive) | `https://www.mapillary.com/embed` | **non** | usage raisonnable | CC BY-SA 4.0 |
+| **Google Street View** (optionnel) | `https://www.google.com/maps/embed/v1/streetview` | **oui, gratuite** | **illimité, sans frais** | Conditions Google Maps Platform |
 
 ### Mesures de respect des quotas
 
@@ -345,7 +350,59 @@ Il n'existe **aucune API gratuite** permettant d'associer de façon fiable une p
 
 ---
 
-## 8. Exports et presse-papiers
+## 8. Vue immersive Street View 360°
+
+L'onglet **Images** comporte une quatrième section, **D. Vue immersive**, qui ouvre un véritable viewer 360° navigable : regarder autour de soi et se déplacer le long de la rue.
+
+### Trois sources, deux sans aucune clé
+
+| Source | Clé | Ce qu'il faut | Couverture |
+|---|---|---|---|
+| **Panoramax 360°** *(par défaut)* | **aucune** | une photo Panoramax trouvée à proximité | France, en croissance rapide |
+| **Mapillary 360°** | **aucune pour l'embed** | une photo Mapillary trouvée à proximité (la recherche, elle, demande le jeton gratuit) | monde entier |
+| **Google Street View** | **oui, gratuite** | `googleMapsEmbedKey` côté serveur | la plus large |
+
+> **Point important sur Google.** L'API **Maps Embed** est bien **gratuite et illimitée** — ce n'est pas l'API Street View Static, qui est payante au-delà d'un quota. En revanche Google exige un **projet Google Cloud avec un compte de facturation activé** (carte bancaire), même si aucun débit n'est effectué pour l'Embed. C'est pourquoi cette source est **désactivée par défaut** : l'application est pleinement utilisable sans elle, grâce à Panoramax.
+
+### Chargement à la demande — confidentialité
+
+**Aucun cadre externe n'est créé avant un clic explicite.** Tant que vous n'avez pas cliqué sur « Ouvrir la vue immersive », le fournisseur ne reçoit **aucune requête**, ne dépose **aucun cookie** et n'ouvre **aucun contexte de navigation**. Une affiche locale (la vignette déjà chargée) est affichée à la place, avec cet avertissement.
+
+Le cadre, une fois chargé, est durci : `sandbox="allow-scripts allow-same-origin allow-popups …"`, `referrerpolicy="no-referrer"`, `loading="lazy"`.
+
+### Commandes
+
+- **Sélecteur de source** : les sources indisponibles sont grisées **avec leur raison exacte**.
+- **Orientation** : rotation par pas de 45°, points cardinaux (N / E / S / O), cap affiché en degrés. *(Mapillary pilote son orientation dans son propre viewer.)*
+- **Navigation entre photographies** autour du point, avec compteur.
+- **Fermer la vue** : retire l'iframe et revient à l'affiche de consentement.
+- **Ouvrir chez le fournisseur** : lien direct vers la fiche source.
+
+### Honnêteté de la qualification
+
+Une photographie **plate** n'est jamais présentée comme immersive : le badge indique **« Photographie plane »** et explique que le viewer permettra de zoomer, sans vision à 360°. Seules les photographies sphériques portent le badge **« 360° immersif »**.
+
+Chaque vue affiche sa **source**, sa **date de prise de vue**, son **auteur**, sa **distance** au point et sa **licence**. Pour Google, la date n'est pas fournie par l'API Embed : l'interface le dit au lieu d'inventer une date.
+
+### Activer Google Street View (optionnel)
+
+1. Créez un projet sur <https://console.cloud.google.com>, activez **Maps Embed API** et créez une clé.
+2. Restreignez la clé à **Maps Embed API** et à vos référents HTTP.
+3. Dans `server.config.json` :
+
+   ```json
+   { "googleMapsEmbedKey": "AIza…" }
+   ```
+
+4. Relancez `node server.js`, ou appelez `http://localhost:8080/api/reload-token`.
+
+Variante : `$env:GOOGLE_MAPS_EMBED_KEY = "AIza…"; node server.js`.
+
+**La clé n'est jamais écrite dans le JavaScript public.** Le navigateur appelle `/api/streetview/embed?lat=…&lon=…` sur votre serveur local, qui ajoute la clé et redirige vers Google. `server.config.json` est ignoré par Git et renvoie HTTP 403 en téléchargement. Une clé Embed est de toute façon destinée à être visible dans l'URL de l'iframe : restreignez-la par référent HTTP dans la console Google.
+
+---
+
+## 9. Exports et presse-papiers
 
 | Export | Contenu | Format |
 |---|---|---|
@@ -360,7 +417,7 @@ Copies en un clic : **adresse complète**, **coordonnées GPS**, **SIRET**, **SI
 
 ---
 
-## 9. Données locales et confidentialité
+## 10. Données locales et confidentialité
 
 - **Aucun serveur tiers** autre que les API publiques listées. Aucun analytics, aucun traceur, aucune police externe, aucun CDN.
 - **Historique désactivé par défaut.** Aucun enregistrement tant que vous ne l'avez pas activé explicitement dans les paramètres.
@@ -372,17 +429,17 @@ Copies en un clic : **adresse complète**, **coordonnées GPS**, **SIRET**, **SI
 
 ---
 
-## 10. Tests
+## 11. Tests
 
 ```bash
-# Tests unitaires (101 tests, aucune dépendance, aucun réseau)
+# Tests unitaires (125 tests, aucune dépendance, aucun réseau)
 npm test
 
 # Tests d'interface (jsdom requis : npm install)
 npm install        # installe jsdom, uniquement pour ces tests
 npm run test:css   # 16 vérifications : aucun élément masqué ne fuite à l'affichage
 npm run test:boot  # 14 vérifications : ouverture en file://, chien de garde
-npm run test:dom   # 42 vérifications : parcours complet, Leaflet réel
+npm run test:dom   # 52 vérifications : parcours complet, Leaflet réel
 
 # Les deux
 npm run test:all
@@ -395,8 +452,8 @@ npm run test:live
 
 ### Couverture
 
-- **Unitaires** : Luhn SIREN/SIRET (dont dérogation La Poste), codes postaux, départements (Corse, DROM), haversine, emprise France, similarité de noms, limiteur de débit, cache TTL, retry/backoff/429, construction des requêtes API, normalisation du schéma officiel, déduplication, filtres et tris, replis de recherche, **toute la logique de décision GPS**, CSV/GeoJSON, stockage et historique opt-in, Panoramax/Mapillary, transport.
-- **Intégration DOM** : démarrage, carte Leaflet, recherche, résultats, marqueurs, fiche, géocodage, onglet Images, tuiles IGN, photos de rue, lightbox, bascule de fond, plein écran, exports, favoris, paramètres, historique, états d'erreur, **absence d'erreur JavaScript**, **absence d'appel à un service non déclaré**, **absence de jeton dans les requêtes navigateur**.
+- **Unitaires** : Luhn SIREN/SIRET (dont dérogation La Poste), codes postaux, départements (Corse, DROM), haversine, emprise France, similarité de noms, limiteur de débit, cache TTL, retry/backoff/429, construction des requêtes API, normalisation du schéma officiel, déduplication, filtres et tris, replis de recherche, **toute la logique de décision GPS**, CSV/GeoJSON, stockage et historique opt-in, Panoramax/Mapillary, transport, vues immersives (URL, disponibilité, absence de clé).
+- **Intégration DOM** : vue immersive (chargement au clic, cadre durci, orientation, fermeture), démarrage, carte Leaflet, recherche, résultats, marqueurs, fiche, géocodage, onglet Images, tuiles IGN, photos de rue, lightbox, bascule de fond, plein écran, exports, favoris, paramètres, historique, états d'erreur, **absence d'erreur JavaScript**, **absence d'appel à un service non déclaré**, **absence de jeton dans les requêtes navigateur**.
 
 Les fixtures de `tests/fixtures/` sont **synthétiques** et **jamais chargées par l'application** : il n'existe aucun « mode démo » pouvant faire passer de fausses données pour réelles.
 
@@ -404,7 +461,7 @@ Rapport détaillé et périmètre vérifié : **[docs/VERIFICATION.md](docs/VERI
 
 ---
 
-## 11. Limites connues et alternatives gratuites
+## 12. Limites connues et alternatives gratuites
 
 | Limite | Réalité | Solution retenue |
 |---|---|---|
@@ -415,12 +472,12 @@ Rapport détaillé et périmètre vérifié : **[docs/VERIFICATION.md](docs/VERI
 | **Couverture aérienne 20 cm** | La couche HR ne couvre pas tout (certains DROM) | Repli automatique sur `ORTHOIMAGERY.ORTHOPHOTOS`, puis message si échec |
 | **Position SIRENE imprécise** | Certaines adresses ne sont géocodées qu'à la commune | Précision annoncée, cercle d'incertitude, géocodage BAN prioritaire quand il atteint le numéro de voie |
 | **Profondeur de pagination** | `page × per_page ≤ 10 000` | Message invitant à affiner la recherche |
-| **Google Street View** | API payante et non libre | Non intégré : Panoramax et Mapillary sont les alternatives libres |
+| **Google Street View** | L'API *Maps Embed* est gratuite et illimitée, mais Google exige un projet Cloud avec facturation activée | Intégré **en option, désactivé par défaut**, clé côté serveur. **Panoramax 360°** fournit la vue immersive sans clé ni compte |
 | **Cadastre, intérieur des bâtiments** | Hors périmètre des services gratuits retenus | Non intégré |
 
 ---
 
-## 12. Dépannage
+## 13. Dépannage
 
 | Symptôme | Cause probable | Solution |
 |---|---|---|
@@ -434,12 +491,15 @@ Rapport détaillé et périmètre vérifié : **[docs/VERIFICATION.md](docs/VERI
 | Photo aérienne grisée | Tuiles IGN indisponibles ou zone non couverte | Basculez sur le plan, ou réessayez ; aucun substitut n'est affiché |
 | `EADDRINUSE` | Port 8080 occupé | `$env:PORT=8090; node server.js` |
 | Coordonnées absentes | Établissement non diffusible ou adresse non géocodable | Message explicite dans la fiche ; consultez la fiche officielle |
+| « Aucune vue immersive disponible » | Aucune photo sphérique à proximité et Google non configuré | Augmentez le rayon des photos de rue, ou activez Google Street View (voir [section 8](#8-vue-immersive-street-view-360)) |
+| Le cadre immersif reste vide | Le fournisseur refuse l'intégration, ou une extension bloque les iframes | Utilisez « Ouvrir chez le fournisseur » ; vérifiez `node tests/live-smoke.mjs` |
+| Google Street View grisé | Aucune clé, ou coordonnées indisponibles | Le sélecteur affiche la raison exacte ; voir [section 8](#8-vue-immersive-street-view-360) |
 
 Le panneau **état des API** (pastille dans l'en-tête) teste réellement les cinq services et affiche latence et diagnostic.
 
 ---
 
-## 13. Grille de validation
+## 14. Grille de validation
 
 | # | Critère | État |
 |---|---|---|
@@ -455,6 +515,7 @@ Le panneau **état des API** (pastille dans l'en-tête) teste réellement les ci
 | 10 | Fonctionnement local sous Windows | ✅ `node server.js`, chemins relatifs uniquement |
 | 11 | Export CSV fonctionnel | ✅ BOM + `;` + CRLF, testé |
 | 12 | Aucun abonnement payant obligatoire | ✅ zéro clé requise pour le cœur de l'application |
+| + | Vue immersive Street View 360° | ✅ Panoramax et Mapillary sans clé ; Google en option, Embed gratuit et illimité |
 
 ---
 

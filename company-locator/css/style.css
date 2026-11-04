@@ -598,6 +598,44 @@ select { cursor: pointer; appearance: none; padding-right: 30px;
 }
 .boot-help-footer { margin: 0; font-size: var(--fs-sm); opacity: .9; }
 
+/* ------------------- D. Vue immersive Street View ------------------- */
+.sv-chooser { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-bottom: var(--sp-3); }
+.sv-provider {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--c-border); border-radius: var(--r-md);
+  background: var(--c-surface); color: var(--c-text); cursor: pointer;
+  font: inherit; text-align: left; transition: border-color .15s, background .15s;
+}
+.sv-provider:hover:not(.is-disabled) { border-color: var(--c-primary); }
+.sv-provider.is-active { border-color: var(--c-primary); background: var(--c-primary-soft); }
+.sv-provider.is-disabled { opacity: .55; cursor: not-allowed; }
+.sv-provider-note { font-size: var(--fs-xs); color: var(--c-text-3); }
+
+.sv-stage {
+  position: relative; overflow: hidden;
+  border: 1px solid var(--c-border); border-radius: var(--r-md);
+  background: var(--c-surface-2);
+}
+.sv-frame { display: block; width: 100%; border: 0; }
+
+.sv-poster { position: absolute; inset: 0; display: grid; place-items: center; }
+.sv-poster img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; filter: saturate(.85); }
+.sv-poster-veil { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(15,23,42,.55), rgba(15,23,42,.78)); }
+.sv-poster-action { position: relative; display: grid; justify-items: center; gap: var(--sp-3); padding: var(--sp-4); text-align: center; }
+.sv-launch { font-size: var(--fs-md); padding: var(--sp-3) var(--sp-5); }
+.sv-consent { margin: 0; max-width: 60ch; color: #e2e8f0; font-size: var(--fs-xs); line-height: 1.45; }
+
+.sv-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); margin-top: var(--sp-3); }
+.sv-heading { font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--c-text-2); min-width: 76px; text-align: center; }
+.sv-compass { display: inline-flex; gap: 2px; }
+.sv-count { font-size: var(--fs-xs); color: var(--c-text-3); }
+
+.sv-caption { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); margin-top: var(--sp-3); font-size: var(--fs-xs); color: var(--c-text-2); }
+.sv-detail { margin: var(--sp-2) 0 0; }
+.sv-reasons { margin: var(--sp-3) 0 0; padding-left: var(--sp-5); font-size: var(--fs-sm); color: var(--c-text-2); }
+.sv-reasons li { margin-bottom: var(--sp-2); }
+
 /* ---------------------------- 14. Toasts ---------------------------- */
 .toasts { position: fixed; right: var(--sp-5); bottom: var(--sp-5); z-index: 1500; display: flex; flex-direction: column; gap: var(--sp-2); pointer-events: none; }
 .toast {

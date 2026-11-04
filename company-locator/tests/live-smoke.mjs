@@ -199,6 +199,57 @@ if (token) {
 }
 
 /* ---------------------------------------------------------------- */
+/* 5. Vues immersives « Street View »                                */
+/* ---------------------------------------------------------------- */
+
+console.log('\nVues immersives 360°');
+
+try {
+  const { value: headers, ms } = await timed(async () => {
+    const response = await fetch('https://api.panoramax.xyz/', { redirect: 'follow' });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return {
+      blocking: response.headers.get('x-frame-options'),
+      csp: response.headers.get('content-security-policy') || '',
+    };
+  });
+  const refuse = /deny|sameorigin/i.test(headers.blocking || '') || /frame-ancestors\s+'none'/i.test(headers.csp);
+  record('Viewer immersif Panoramax intégrable', !refuse,
+    refuse
+      ? `Le viewer refuse l'iframe (X-Frame-Options: ${headers.blocking}). Le lien « Ouvrir chez Panoramax » reste disponible.`
+      : `Page du viewer accessible, aucune interdiction d'iframe (${ms} ms)`, false);
+} catch (error) {
+  record('Viewer immersif Panoramax', false, error.message, false);
+}
+
+try {
+  const response = await fetch('https://www.mapillary.com/embed?image_key=550092599700936&style=photo');
+  record('Embed Mapillary accessible sans jeton', response.ok, `HTTP ${response.status}`, false);
+} catch (error) {
+  record('Embed Mapillary', false, error.message, false);
+}
+
+let googleKey = process.env.GOOGLE_MAPS_EMBED_KEY || '';
+if (!googleKey && existsSync(path.join(ROOT, 'server.config.json'))) {
+  try {
+    googleKey = JSON.parse(readFileSync(path.join(ROOT, 'server.config.json'), 'utf8')).googleMapsEmbedKey || '';
+  } catch { /* fichier illisible */ }
+}
+if (googleKey) {
+  try {
+    const params = new URLSearchParams({ key: googleKey, location: '48.8509,2.2896', heading: '0', pitch: '0', fov: '90' });
+    const response = await fetch(`https://www.google.com/maps/embed/v1/streetview?${params}`);
+    record('Google Street View (clé configurée)', response.ok,
+      `HTTP ${response.status}${response.ok ? '' : ' — clé refusée ou API Maps Embed non activée sur le projet'}`, false);
+  } catch (error) {
+    record('Google Street View', false, error.message, false);
+  }
+} else {
+  console.log('  – Google Street View : aucune clé configurée, test ignoré (Panoramax couvre ce besoin sans clé).');
+}
+
+
+/* ---------------------------------------------------------------- */
 /* Bilan                                                             */
 /* ---------------------------------------------------------------- */
 
