@@ -1,0 +1,21 @@
+{
+  "name": "company-locator-france",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Application locale de recherche et de géolocalisation d'entreprises françaises : API Recherche d'entreprises, BAN/Géoplateforme IGN, Leaflet, BD ORTHO, Panoramax et Mapillary.",
+  "license": "MIT",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test tests/unit/utils.test.mjs tests/unit/entreprise-api.test.mjs tests/unit/search.test.mjs tests/unit/geocoding.test.mjs tests/unit/export-storage.test.mjs tests/unit/images.test.mjs tests/unit/transport.test.mjs",
+    "test:dom": "node tests/dom.test.mjs",
+    "test:all": "node --test tests/unit/utils.test.mjs tests/unit/entreprise-api.test.mjs tests/unit/search.test.mjs tests/unit/geocoding.test.mjs tests/unit/export-storage.test.mjs tests/unit/images.test.mjs tests/unit/transport.test.mjs && node tests/dom.test.mjs",
+    "test:live": "node tests/live-smoke.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "jsdom": "^24.1.3"
+  }
+}

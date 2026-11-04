@@ -1,0 +1,14 @@
+# Dépendances de développement (tests DOM uniquement) — aucun runtime requis
+node_modules/
+package-lock.json
+
+# SECRETS : ne jamais versionner le jeton Mapillary
+server.config.json
+.env
+.env.local
+
+# Journaux et fichiers système
+npm-debug.log*
+*.log
+.DS_Store
+Thumbs.db

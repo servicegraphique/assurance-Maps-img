@@ -1,0 +1,164 @@
+/* =====================================================================
+   Company Locator France — map.css
+   Rôle : tout ce qui concerne la cartographie Leaflet (conteneurs,
+   marqueurs personnalisés, popups, mode plein écran, mini-carte aérienne,
+   attribution des fournisseurs). Dépend des variables de style.css.
+   ===================================================================== */
+
+/* ------------------------- 1. Conteneurs ---------------------------- */
+.map-card { overflow: hidden; }
+.map-head { align-items: center; flex-wrap: wrap; }
+.map-tools { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+
+.map-wrap { position: relative; }
+
+#map {
+  width: 100%;
+  height: 460px;
+  background: #e8eef5;
+  z-index: 0;
+}
+
+.map-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4);
+  padding: var(--sp-2) var(--sp-4); border-top: 1px solid var(--c-border);
+  background: var(--c-surface-2); flex-wrap: wrap;
+}
+.map-readout { font-family: var(--font-mono); }
+.map-credits { text-align: right; }
+.map-credits a { color: var(--c-text-3); text-decoration: underline; }
+
+/* Message superposé (chargement, erreur de tuiles, absence de coordonnées) */
+.map-overlay {
+  position: absolute; inset: 0; z-index: 500;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--sp-3);
+  background: rgba(248, 250, 252, .92); text-align: center; padding: var(--sp-6);
+  font-size: var(--fs-sm); color: var(--c-text-2);
+}
+.map-overlay .icon { width: 30px; height: 30px; color: var(--c-border-strong); }
+.map-overlay h3 { color: var(--c-text-2); }
+.map-overlay p { max-width: 52ch; }
+.map-overlay.is-transparent { background: rgba(248, 250, 252, .6); pointer-events: none; }
+
+/* ---------------------- 2. Sélecteur de fond ------------------------ */
+.segmented {
+  display: inline-flex; padding: 2px; gap: 2px;
+  background: var(--c-surface-2); border: 1px solid var(--c-border); border-radius: var(--r-md);
+}
+.seg-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 10px; border: 0; border-radius: var(--r-sm); background: transparent;
+  font-size: var(--fs-sm); font-weight: 550; color: var(--c-text-3); cursor: pointer;
+  transition: all var(--transition); white-space: nowrap;
+}
+.seg-btn:hover { color: var(--c-text); }
+.seg-btn.is-active { background: var(--c-surface); color: var(--c-primary); box-shadow: var(--shadow-sm); }
+
+/* --------------------- 3. Marqueurs personnalisés ------------------- */
+.clf-marker { background: transparent; border: 0; }
+.clf-marker .pin {
+  position: relative; width: 26px; height: 26px; border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg); background: var(--c-primary);
+  border: 2px solid #fff; box-shadow: 0 2px 6px rgba(15, 23, 42, .35);
+  display: block; transition: transform 140ms ease, background 140ms ease;
+}
+.clf-marker .pin::after {
+  content: ""; position: absolute; inset: 6px; border-radius: 50%; background: rgba(255, 255, 255, .92);
+}
+.clf-marker .pin-label {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%) rotate(45deg);
+  font-size: 9px; font-weight: 800; color: var(--c-primary-dark); z-index: 2;
+}
+.clf-marker.is-siege .pin { background: var(--c-accent); }
+.clf-marker.is-siege .pin-label { color: var(--c-accent); }
+.clf-marker.is-closed .pin { background: #94a3b8; }
+.clf-marker.is-closed .pin-label { color: #475569; }
+.clf-marker.is-selected .pin {
+  background: #ea580c; width: 32px; height: 32px;
+  box-shadow: 0 0 0 6px rgba(234, 88, 12, .22), 0 3px 8px rgba(15, 23, 42, .4);
+}
+.clf-marker.is-selected .pin-label { color: #ea580c; }
+.clf-marker:hover .pin { transform: rotate(-45deg) scale(1.08); }
+
+/* Marqueur « cible » de la vue aérienne : croix de visée sur le bâtiment */
+.clf-target { background: transparent; border: 0; }
+.clf-target .ring {
+  width: 40px; height: 40px; border-radius: 50%;
+  border: 2px solid #f97316; box-shadow: 0 0 0 2px rgba(255, 255, 255, .85), 0 0 12px rgba(0, 0, 0, .35);
+  position: relative;
+}
+.clf-target .ring::before, .clf-target .ring::after {
+  content: ""; position: absolute; background: #f97316;
+}
+.clf-target .ring::before { left: 50%; top: -9px; width: 2px; height: 58px; transform: translateX(-50%); }
+.clf-target .ring::after { top: 50%; left: -9px; height: 2px; width: 58px; transform: translateY(-50%); }
+.clf-target .dot {
+  position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px;
+  border-radius: 50%; background: #f97316; box-shadow: 0 0 0 2px #fff;
+}
+
+/* Marqueur de position approximative (cercle d'incertitude) */
+.clf-uncertainty { stroke: #ea580c; }
+
+/* --------------------------- 4. Popups ------------------------------ */
+.leaflet-container { font-family: var(--font); font-size: var(--fs-sm); }
+.leaflet-popup-content-wrapper { border-radius: var(--r-md); box-shadow: var(--shadow-md); }
+.leaflet-popup-content { margin: var(--sp-3) var(--sp-4); line-height: 1.45; }
+.clf-popup { min-width: 210px; max-width: 280px; }
+.clf-popup h4 { font-size: var(--fs-base); font-weight: 650; margin-bottom: 2px; }
+.clf-popup .p-sub { font-size: var(--fs-xs); color: var(--c-text-3); margin-bottom: var(--sp-2); }
+.clf-popup .p-addr { font-size: var(--fs-sm); color: var(--c-text-2); margin-bottom: var(--sp-2); }
+.clf-popup .p-meta { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: var(--sp-2); }
+.clf-popup .p-coords { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--c-text-3); margin-bottom: var(--sp-2); }
+.clf-popup .btn { width: 100%; }
+
+.leaflet-control-attribution {
+  font-size: 10px !important; background: rgba(255, 255, 255, .88) !important;
+  padding: 2px 6px !important; max-width: 100%;
+}
+.leaflet-control-attribution a { color: var(--c-text-2) !important; }
+.leaflet-bar a { color: var(--c-text-2) !important; }
+.leaflet-bar a:hover { color: var(--c-primary) !important; }
+
+/* ------------------------ 5. Plein écran ---------------------------- */
+.map-card.is-fullscreen {
+  position: fixed; inset: 0; z-index: 1300; border-radius: 0;
+  display: flex; flex-direction: column; box-shadow: none; border: 0;
+}
+.map-card.is-fullscreen .map-wrap { flex: 1; min-height: 0; }
+.map-card.is-fullscreen #map { height: 100%; }
+.map-card.is-fullscreen .map-foot { flex: none; }
+body.has-fullscreen-map { overflow: hidden; }
+
+/* --------------------- 6. Mini-carte aérienne ----------------------- */
+.aerial-wrap {
+  position: relative; border: 1px solid var(--c-border);
+  border-radius: var(--r-md); overflow: hidden; background: #0b1220;
+}
+.aerial-map { width: 100%; height: 380px; }
+.aerial-toolbar {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3); background: var(--c-surface-2);
+  border-top: 1px solid var(--c-border); font-size: var(--fs-xs); color: var(--c-text-3);
+  flex-wrap: wrap;
+}
+.aerial-toolbar .aerial-actions { display: flex; gap: var(--sp-2); align-items: center; }
+.aerial-badge {
+  position: absolute; left: var(--sp-3); top: var(--sp-3); z-index: 400;
+  padding: 3px 9px; border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 600;
+  background: rgba(15, 23, 42, .8); color: #fff; display: inline-flex; align-items: center; gap: 5px;
+}
+.aerial-scale-note {
+  position: absolute; right: var(--sp-3); top: var(--sp-3); z-index: 400;
+  padding: 3px 9px; border-radius: var(--r-pill); font-size: var(--fs-xs);
+  background: rgba(255, 255, 255, .9); color: var(--c-text-2); border: 1px solid var(--c-border);
+}
+
+/* ------------------- 7. Indicateur de couverture photo -------------- */
+.coverage-legend { display: flex; align-items: center; gap: var(--sp-3); font-size: var(--fs-xs); color: var(--c-text-3); flex-wrap: wrap; }
+.legend-item { display: inline-flex; align-items: center; gap: 5px; }
+.legend-swatch { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.legend-swatch.osm { background: var(--c-primary); }
+.legend-swatch.siege { background: var(--c-accent); }
+.legend-swatch.closed { background: #94a3b8; }
+.legend-swatch.selected { background: #ea580c; }

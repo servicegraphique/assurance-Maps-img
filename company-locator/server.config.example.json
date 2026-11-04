@@ -1,0 +1,6 @@
+{
+  "_aide": "Copiez ce fichier vers server.config.json (non versionné) puis collez votre jeton client Mapillary gratuit. Le jeton reste côté serveur : il n'est jamais envoyé au navigateur. Vous pouvez aussi utiliser la variable d'environnement MAPILLARY_TOKEN.",
+  "_obtenir_un_jeton": "https://www.mapillary.com/dashboard/developers",
+  "_alternative_sans_jeton": "Panoramax (IGN / OpenStreetMap France) fonctionne sans jeton et couvre déjà une grande partie de la France.",
+  "mapillaryToken": ""
+}

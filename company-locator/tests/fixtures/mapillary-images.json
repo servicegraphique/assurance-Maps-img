@@ -1,0 +1,33 @@
+{
+  "_NOTE": "Réponse Mapillary Graph API synthétique pour les tests.",
+  "data": [
+    {
+      "id": "1234567890",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          2.3003,
+          48.84125
+        ]
+      },
+      "thumb_1024_url": "https://example.invalid/mly1.jpg",
+      "captured_at": 1710000000000,
+      "compass_angle": 95.2,
+      "is_pano": false
+    },
+    {
+      "id": "9876543210",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          2.3025,
+          48.8425
+        ]
+      },
+      "thumb_1024_url": "https://example.invalid/mly2.jpg",
+      "captured_at": 1650000000000,
+      "compass_angle": 270.0,
+      "is_pano": true
+    }
+  ]
+}

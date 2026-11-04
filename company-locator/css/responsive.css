@@ -1,0 +1,140 @@
+/* =====================================================================
+   Company Locator France — responsive.css
+   Rôle : uniquement les adaptations par taille d'écran (ordinateur,
+   tablette, mobile) et par préférence utilisateur. Chargé en dernier.
+   ===================================================================== */
+
+/* ---------------- Grand écran : plus d'air ---------------- */
+@media (min-width: 1600px) {
+  .workspace { grid-template-columns: minmax(380px, 460px) minmax(0, 1fr); }
+  #map { height: 520px; }
+  .aerial-map { height: 430px; }
+}
+
+/* ---------------- Tablette paysage / petit ordinateur ---------------- */
+@media (max-width: 1200px) {
+  .app-main { padding: var(--sp-4) var(--sp-4) var(--sp-6); }
+  .app-header { padding: var(--sp-3) var(--sp-4); }
+  .workspace { grid-template-columns: minmax(300px, 360px) minmax(0, 1fr); gap: var(--sp-4); }
+  .field-grid { grid-template-columns: 1.6fr 1fr 1.2fr; }
+  #map { height: 400px; }
+  .results-list { max-height: 64vh; }
+}
+
+/* ---------------- Tablette portrait : navigation par onglets --------- */
+@media (max-width: 980px) {
+  .workspace { grid-template-columns: minmax(0, 1fr); }
+
+  .viewbar {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--sp-1);
+    padding: var(--sp-1); margin-bottom: var(--sp-4);
+    background: var(--c-surface); border: 1px solid var(--c-border);
+    border-radius: var(--r-md); box-shadow: var(--shadow-sm);
+    position: sticky; top: calc(var(--header-h) + 4px); z-index: 700;
+  }
+  .viewbar-btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    padding: var(--sp-2) var(--sp-3); border: 0; border-radius: var(--r-sm);
+    background: transparent; color: var(--c-text-3); font-size: var(--fs-sm);
+    font-weight: 600; cursor: pointer; transition: all var(--transition);
+  }
+  .viewbar-btn.is-active { background: var(--c-primary-soft); color: var(--c-primary-dark); }
+
+  /* Une seule colonne visible à la fois, pilotée par data-view */
+  .workspace[data-view="results"] .pane-detail { display: none; }
+  .workspace[data-view="map"] .pane-results,
+  .workspace[data-view="detail"] .pane-results { display: none; }
+  .workspace[data-view="map"] #detail-card { display: none; }
+  .workspace[data-view="detail"] .map-card { display: none; }
+
+  .results-list { max-height: none; }
+  #map { height: 60vh; min-height: 340px; }
+  .brand-sub { display: none; }
+}
+
+/* ---------------- Mobile ---------------- */
+@media (max-width: 680px) {
+  :root { --header-h: 58px; }
+
+  body { font-size: var(--fs-base); }
+  .app-main { padding: var(--sp-3) var(--sp-3) var(--sp-5); }
+  .app-header { padding: var(--sp-2) var(--sp-3); gap: var(--sp-2); }
+  .brand-logo { width: 32px; height: 32px; }
+  .brand-title { font-size: var(--fs-md); }
+  .header-actions .btn-text { display: none; }
+  .header-actions .btn { padding: 8px; }
+  .status-pill .status-label { display: none; }
+  .status-pill { padding: 8px; }
+
+  .status-panel { right: var(--sp-3); left: var(--sp-3); width: auto; }
+
+  .card-head { padding: var(--sp-3) var(--sp-4); flex-direction: column; align-items: stretch; }
+  .search-card form { padding: var(--sp-3) var(--sp-4) var(--sp-4); }
+  .field-grid { grid-template-columns: minmax(0, 1fr); gap: var(--sp-3); }
+  .form-actions { gap: var(--sp-2); }
+  .form-actions .btn { flex: 1; }
+  .form-hint { display: none; }
+  .examples { padding: var(--sp-3) var(--sp-4); }
+
+  .results-head { flex-direction: row; align-items: center; }
+  .results-tools { justify-content: flex-start; }
+  .results-list { padding: var(--sp-2); }
+
+  .map-head { flex-direction: column; align-items: stretch; }
+  .map-tools { justify-content: space-between; }
+  .segmented { flex: 1; }
+  .seg-btn { flex: 1; justify-content: center; padding: 6px 6px; font-size: var(--fs-xs); }
+  #map { height: 56vh; min-height: 300px; }
+  .map-foot { flex-direction: column; align-items: flex-start; gap: var(--sp-1); }
+  .map-credits { text-align: left; }
+
+  .detail-head { padding: var(--sp-4); }
+  .detail-title { font-size: var(--fs-lg); }
+  .detail-title-row { flex-direction: column; }
+  .detail-actions .btn { flex: 1 1 auto; }
+  .tabs { padding: 0 var(--sp-2); }
+  .tab-btn { padding: var(--sp-3) var(--sp-3); }
+  .tab-panel { padding: var(--sp-4); }
+  .info-grid { grid-template-columns: minmax(0, 1fr); }
+  .gps-box { flex-direction: column; align-items: flex-start; gap: var(--sp-2); }
+
+  .photo-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--sp-2); }
+  .aerial-map { height: 300px; }
+  .inline-form { grid-template-columns: minmax(0, 1fr); }
+
+  .modal { padding: 0; align-items: flex-end; }
+  .modal-box { width: 100%; max-height: 92vh; border-radius: var(--r-lg) var(--r-lg) 0 0; }
+  .modal-foot { border-radius: 0; }
+  .setting-row { flex-direction: column; align-items: flex-start; gap: var(--sp-2); }
+  .setting-row select { width: 100%; }
+
+  .lightbox { padding: var(--sp-3); }
+  .lightbox-nav { top: auto; bottom: -52px; transform: none; }
+  .lightbox-prev { left: 20%; }
+  .lightbox-next { right: 20%; }
+  .lightbox-close { top: -40px; }
+  .lightbox-box img { max-height: 66vh; }
+
+  .toasts { left: var(--sp-3); right: var(--sp-3); bottom: var(--sp-3); }
+  .toast { max-width: none; }
+
+  .app-footer { padding: var(--sp-4) var(--sp-3) var(--sp-6); }
+}
+
+/* ---------------- Très petit écran ---------------- */
+@media (max-width: 380px) {
+  .brand-title span { display: none; }
+  .photo-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ---------------- Impression : fiche uniquement ---------------- */
+@media print {
+  .app-header, .search-card, .viewbar, .pane-results, .map-card,
+  .app-footer, .toasts, .modal, .lightbox, .detail-actions, .tabs { display: none !important; }
+  body { background: #fff; }
+  .app-main { padding: 0; }
+  .workspace { display: block; }
+  .card { border: 0; box-shadow: none; }
+  .tab-panel[hidden] { display: block !important; }
+  .aerial-map { height: 260px; }
+}
