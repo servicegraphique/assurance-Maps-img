@@ -307,6 +307,9 @@
     </figure>
   </div>
 
+  <!-- Garde de démarrage : script CLASSIQUE, il s'exécute même en file://
+       (où les modules ES sont bloqués) pour expliquer quoi faire. -->
+  <script src="js/boot.js" defer></script>
   <!-- Leaflet est servi localement (aucun CDN requis) -->
   <script src="vendor/leaflet/leaflet.js" defer></script>
   <script type="module" src="js/app.js"></script>

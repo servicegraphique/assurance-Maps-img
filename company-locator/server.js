@@ -9,6 +9,8 @@
  *
  * Lancement :   node server.js
  * Port :        8080 par défaut, modifiable via la variable PORT.
+ *               En cas de port occupé, les 9 ports suivants sont essayés.
+ * Option :      --open  ouvre le navigateur au démarrage (utilisé par les lanceurs).
  * Jeton :       variable d'environnement MAPILLARY_TOKEN
  *               ou fichier server.config.json { "mapillaryToken": "MLY|…" }
  *
@@ -347,26 +349,61 @@ const server = http.createServer(async (request, response) => {
   return serveStatic(request, response, url);
 });
 
-server.listen(PORT, HOST, () => {
+/** Ouvre le navigateur sur l'URL servie (option --open, utilisée par les lanceurs). */
+async function openBrowser(url) {
+  try {
+    const { spawn } = await import('node:child_process');
+    const [command, args] = process.platform === 'win32'
+      ? ['cmd', ['/c', 'start', '', url]]
+      : process.platform === 'darwin'
+        ? ['open', [url]]
+        : ['xdg-open', [url]];
+    const child = spawn(command, args, { detached: true, stdio: 'ignore' });
+    child.on('error', () => console.log(`  Ouvrez manuellement : ${url}`));
+    child.unref();
+  } catch {
+    console.log(`  Ouvrez manuellement : ${url}`);
+  }
+}
+
+const OPEN_BROWSER = process.argv.includes('--open') || process.env.CLF_OPEN === '1';
+const MAX_PORT_TRIES = 10;
+let attempt = 0;
+let activePort = PORT;
+
+server.on('listening', () => {
+  const url = `http://localhost:${activePort}/`;
   const tokenState = TOKEN ? 'chargé (proxy actif)' : 'absent (Panoramax reste disponible sans jeton)';
   console.log('');
   console.log('  Company Locator France — serveur local');
   console.log('  --------------------------------------');
-  console.log(`  Application : http://localhost:${PORT}/`);
-  console.log(`  Santé       : http://localhost:${PORT}/api/health`);
+  console.log(`  Application : ${url}`);
+  console.log(`  Santé       : ${url}api/health`);
   console.log(`  Jeton Mapillary : ${tokenState}`);
   console.log('  Arrêt : Ctrl + C');
   console.log('');
+  if (OPEN_BROWSER) openBrowser(url);
 });
 
 server.on('error', (error) => {
+  // Port occupé : on essaie le suivant plutôt que d'échouer. Un double-clic
+  // sur le lanceur ne doit jamais se solder par une fenêtre qui se referme.
+  if (error.code === 'EADDRINUSE' && attempt < MAX_PORT_TRIES) {
+    attempt += 1;
+    activePort = PORT + attempt;
+    console.log(`[serveur] Port ${activePort - 1} occupé, essai du port ${activePort}…`);
+    setTimeout(() => server.listen(activePort, HOST), 150);
+    return;
+  }
   if (error.code === 'EADDRINUSE') {
-    console.error(`[serveur] Le port ${PORT} est déjà utilisé. Lancez : PORT=8090 node server.js (ou sous PowerShell : $env:PORT=8090; node server.js)`);
+    console.error(`[serveur] Ports ${PORT} à ${activePort} tous occupés. Libérez un port ou lancez : PORT=8090 node server.js`);
     process.exit(1);
   }
   console.error('[serveur] Erreur :', error.message);
   process.exit(1);
 });
+
+server.listen(PORT, HOST);
 
 for (const signal of ['SIGINT', 'SIGTERM']) {
   process.on(signal, () => {

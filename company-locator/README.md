@@ -71,36 +71,60 @@ Application web locale, en HTML5 / CSS3 / JavaScript Vanilla + Leaflet. Aucun fr
 
 > Aucune installation de dépendance n'est nécessaire pour faire fonctionner l'application : `node server.js` n'utilise que la bibliothèque standard de Node. `npm install` n'est utile **que** pour lancer le test d'intégration DOM (jsdom).
 
-### Windows — méthode recommandée
+### Windows — méthode la plus simple : le lanceur
+
+**Double-cliquez sur `Lancer-Company-Locator.bat`** dans le dossier `company-locator`.
+Le serveur démarre et le navigateur s'ouvre automatiquement sur la bonne adresse.
+Pour arrêter : fermez la fenêtre du terminal ou appuyez sur `Ctrl + C`.
+
+Le lanceur détecte Node.js, et bascule sur Python en mode dégradé si Node est absent
+(en expliquant ce qui sera limité).
+
+### Windows — méthode PowerShell
 
 ```powershell
 # 1. Ouvrir PowerShell dans le dossier du projet
 cd C:\chemin\vers\company-locator
 
 # 2. Lancer le serveur local
-node server.js
+node server.js          # ajoutez --open pour ouvrir le navigateur automatiquement
 
 # 3. Ouvrir le navigateur sur
 #    http://localhost:8080/
 ```
 
-Arrêt : `Ctrl + C`. Port déjà pris ? Utilisez un autre port :
+Arrêt : `Ctrl + C`. **Port déjà pris ?** Le serveur essaie automatiquement les
+9 ports suivants et affiche l'adresse réellement utilisée. Vous pouvez aussi
+imposer un port :
 
 ```powershell
 $env:PORT = 8090; node server.js
 ```
 
+> ⚠️ **N'ouvrez jamais `index.html` en double-cliquant.** L'adresse serait
+> `file:///C:/…/index.html` : les navigateurs y bloquent les modules JavaScript
+> et les requêtes réseau, donc aucune recherche ne peut aboutir. Si cela arrive,
+> l'application affiche désormais un bandeau qui rappelle la marche à suivre et
+> la commande exacte à taper.
+
 ### macOS / Linux
 
 ```bash
 cd company-locator
-node server.js
+./lancer.sh            # ou : node server.js --open
 # http://localhost:8080/
 ```
 
+Si le script n'est pas exécutable : `chmod +x lancer.sh`.
+
 ### Pourquoi un serveur local est obligatoire
 
-L'application utilise des **modules ES** (`import`/`export`). Les navigateurs les refusent en `file://` : double-cliquer sur `index.html` ne fonctionnera pas (un bandeau d'erreur explicite s'affiche si la carte ne peut pas s'initialiser).
+L'application utilise des **modules ES** (`import`/`export`). Les navigateurs les refusent en `file://`.
+
+Deux garde-fous sont en place :
+
+- **`js/boot.js`**, script *classique* (donc exécuté même en `file://`), détecte le protocole et affiche la procédure complète avec le chemin exact de votre dossier ;
+- un **chien de garde** de 8 secondes signale tout module qui ne s'exécuterait pas (extension bloquante, navigateur trop ancien, fichier manquant) au lieu de laisser un écran vide.
 
 ### Alternative sans Node.js (mode dégradé)
 
@@ -190,6 +214,8 @@ company-locator/
 ├── package.json                Scripts npm (démarrage, tests) — aucun runtime requis
 ├── config.local.js             Surcharges locales (livré vide, aucun secret)
 ├── server.config.example.json  Modèle de configuration du jeton Mapillary
+├── Lancer-Company-Locator.bat  Lanceur Windows double-clic
+├── lancer.sh                   Lanceur macOS / Linux
 │
 ├── css/
 │   ├── style.css               Design system, layout, composants
@@ -198,6 +224,7 @@ company-locator/
 │
 ├── js/
 │   ├── app.js                  Orchestration : événements, état, routage par ancre
+│   ├── boot.js                 Garde de démarrage (script classique) : file://, chien de garde
 │   ├── search.js               Moteur de recherche : validation, replis, tri, filtres
 │   ├── entreprise-api.js       Client + normalisation de l'API Recherche d'entreprises
 │   ├── geocoding.js            BAN / Géoplateforme + évaluation de la fiabilité GPS
@@ -222,6 +249,8 @@ company-locator/
 │   └── VERIFICATION.md         Rapport de tests et périmètre réellement vérifié
 └── tests/
     ├── unit/*.test.mjs         101 tests unitaires (node:test, sans réseau)
+    ├── css.test.mjs            16 vérifications de cascade CSS (éléments masqués)
+    ├── boot.test.mjs           14 vérifications du garde de démarrage
     ├── dom.test.mjs            42 vérifications d'intégration DOM (jsdom + Leaflet réels)
     ├── live-smoke.mjs          Test de fumée contre les VRAIES API (à lancer chez vous)
     └── fixtures/               Réponses d'API SYNTHÉTIQUES, jamais chargées par l'app
@@ -349,9 +378,11 @@ Copies en un clic : **adresse complète**, **coordonnées GPS**, **SIRET**, **SI
 # Tests unitaires (101 tests, aucune dépendance, aucun réseau)
 npm test
 
-# Test d'intégration DOM (42 vérifications : Leaflet réel + jsdom)
-npm install        # installe jsdom, uniquement pour ce test
-npm run test:dom
+# Tests d'interface (jsdom requis : npm install)
+npm install        # installe jsdom, uniquement pour ces tests
+npm run test:css   # 16 vérifications : aucun élément masqué ne fuite à l'affichage
+npm run test:boot  # 14 vérifications : ouverture en file://, chien de garde
+npm run test:dom   # 42 vérifications : parcours complet, Leaflet réel
 
 # Les deux
 npm run test:all
@@ -393,7 +424,9 @@ Rapport détaillé et périmètre vérifié : **[docs/VERIFICATION.md](docs/VERI
 
 | Symptôme | Cause probable | Solution |
 |---|---|---|
-| Page blanche ou bandeau « Carte indisponible » | Ouverture en `file://` | Lancez `node server.js` puis `http://localhost:8080/` |
+| Bandeau « le fichier est ouvert directement » | Ouverture en `file://` (double-clic sur `index.html`) | Double-cliquez sur `Lancer-Company-Locator.bat`, ou `node server.js` puis `http://localhost:8080/` |
+| Page sombre avec une modale « Historique » visible au chargement | Ancienne version : `.modal { display:flex }` écrasait l'attribut `hidden` | **Corrigé** par `[hidden] { display:none !important }` — rechargez avec `Ctrl + F5` pour vider le cache CSS |
+| Page blanche ou bandeau « Carte indisponible » | Fichiers servis en `file://` | Lancez `node server.js` puis `http://localhost:8080/` |
 | « Le serveur local n'a pas pu joindre le service public » | La machine qui exécute `server.js` n'a pas accès à Internet (sandbox, proxy d'entreprise, pare-feu) | Lancez l'application sur votre poste ; autorisez `recherche-entreprises.api.gouv.fr` et `data.geopf.fr` |
 | Recherches vides mais carte OK | Blocage CORS en mode serveur statique | Utilisez `node server.js` (relais de même origine) |
 | « Le service limite temporairement les requêtes » | Quota public atteint (429) | Attendez quelques secondes ; le cache évite de re-interroger |
