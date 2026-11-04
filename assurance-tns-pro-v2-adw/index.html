@@ -146,7 +146,8 @@
             <div data-form="step" class="etape-2 form-blobale">
               <div data-go-to="localisation" data-answer="code-postal" class="etape-content form-blobale">
                 <div class="titre-assurance-iard">Quelle est la société concernée par cette demande ?</div>
-                <div class="coordonnees-societe"><input class="nom-societe w-input" maxlength="256" name="societe" data-name="societe" placeholder="Nom de la société" type="text" required=""><input class="code-postale-webflow w-input" data-phone-autoformat="xxxxx" maxlength="256" data-min-character="5" name="code_postal" data-name="code_postal" placeholder="Code postal" type="tel" required=""></div>
+                <p class="loc-company-hint">Renseignez l’adresse de l’établissement : elle servira à localiser votre entreprise et à afficher son bâtiment à l’étape suivante.</p>
+                <div class="coordonnees-societe"><input class="nom-societe w-input" maxlength="256" name="societe" data-name="societe" placeholder="Nom de la société" type="text" required=""><input class="adresse-societe w-input" maxlength="256" name="adresse" data-name="adresse" placeholder="Numéro et nom de rue" type="text" autocomplete="street-address"><input class="code-postale-webflow w-input" data-phone-autoformat="xxxxx" maxlength="256" data-min-character="5" name="code_postal" data-name="code_postal" placeholder="Code postal" type="tel" required=""><input class="ville-societe w-input" maxlength="256" name="ville" data-name="ville" placeholder="Ville" type="text" autocomplete="address-level2"></div>
                 <div class="etape-bouton assurance-iard">
                   <a data-form="back-btn" href="#" class="bouton-precedent rc-pro w-button">Précédent</a>
                   <a data-form="next-btn" href="#" class="bouton-suivant rc-pro w-button">Suivant</a>
@@ -185,15 +186,15 @@
                       <span class="loc-bloc__badge" data-loc-badge>À compléter</span>
                     </div>
                     <div class="loc-tabs" role="group" aria-label="Type de vue du bâtiment">
-                      <button type="button" class="loc-tab" data-loc-view="facade" aria-pressed="true">Façade</button>
-                      <button type="button" class="loc-tab" data-loc-view="aerienne" aria-pressed="false">Vue aérienne</button>
+                      <button type="button" class="loc-tab" data-loc-view="aerienne" aria-pressed="true">Vue aérienne</button>
+                      <button type="button" class="loc-tab" data-loc-view="facade" aria-pressed="false">Photo extérieure</button>
                     </div>
                     <div class="loc-media" data-loc-media>
                       <img data-loc-photo alt="" hidden>
                       <div class="loc-map" data-loc-map="batiment" role="region" aria-label="Vue aérienne du bâtiment" hidden></div>
                       <div class="loc-media__placeholder" data-loc-photo-empty>
-                        <strong>Photographie du bâtiment</strong>
-                        <p data-loc-photo-empty-text>Lancez une recherche d’adresse pour afficher le bâtiment.</p>
+                        <strong>Vue aérienne du bâtiment</strong>
+                        <p data-loc-photo-empty-text>Renseignez l’adresse pour afficher le bâtiment et sa photo extérieure.</p>
                         <button type="button" class="loc-btn loc-btn--ghost" data-loc-view-aerial hidden>Voir la vue aérienne</button>
                       </div>
                       <div class="loc-media__loading" data-loc-photo-loading hidden><span class="loc-spinner" aria-hidden="true"></span>Recherche de la photographie…</div>

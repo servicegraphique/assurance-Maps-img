@@ -18,6 +18,18 @@
   font-family: Poppins, Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
+/* Aide affichée dans l'étape « société » : l'adresse y est saisie puis reprise
+   automatiquement par l'étape de localisation. */
+.loc-company-hint {
+  margin: -4px auto 12px;
+  max-width: 430px;
+  color: #667085;
+  text-align: center;
+  font-family: Roboto, sans-serif;
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
 #loc-section *,
 #loc-section *::before,
 #loc-section *::after,

@@ -122,6 +122,14 @@ function submitForm(window, modal) {
   form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
 }
 
+function setCompanyFields(document, values) {
+  Object.keys(values).forEach((name) => {
+    const field = document.querySelector('.coordonnees-societe [name="' + name + '"]');
+    assert.ok(field, 'champ société absent : ' + name);
+    field.value = values[name];
+  });
+}
+
 function hiddenValue(document, name) {
   const input = document.querySelector('#wf-form-Assurance-TNS-Pro-Form input[name="' + name + '"]');
   return input ? input.value : null;
@@ -134,6 +142,7 @@ test('le module s’initialise et crée les champs cachés du lead', async () =>
   assert.ok(document.querySelector('#loc-section'));
   assert.equal(hiddenValue(document, 'loc_adresse'), '');
   assert.equal(hiddenValue(document, 'loc_batiment_validee'), 'non');
+  assert.equal(hiddenValue(document, 'loc_batiment_vue'), 'vue aerienne');
   assert.equal(document.querySelectorAll('.loc-modal').length, 2);
   assert.equal(document.querySelector('[data-loc-badge]').textContent, 'À compléter');
 });
@@ -242,7 +251,7 @@ test('le bouton Suivant est bloqué tant que les deux blocs ne sont pas validés
   assert.equal(wizardNext, 1, 'le lien de poursuite doit laisser passer une fois');
 });
 
-test('le bloc bâtiment charge une photo Panoramax, permet la vue aérienne et se valide', async () => {
+test('le bâtiment s’affiche en vue aérienne et propose sa photo extérieure', async () => {
   const { window, document } = await createPage({
     'data.geopf.fr': geopfPayload(),
     'photon.komoot.io': { features: [] },
@@ -256,30 +265,36 @@ test('le bloc bâtiment charge une photo Panoramax, permet la vue aérienne et s
   modal.querySelector('[data-loc-use]').click();
   await wait(80);
 
-  const img = document.querySelector('[data-loc-bloc="batiment"] [data-loc-photo]');
+  const panel = document.querySelector('[data-loc-bloc="batiment"]');
+  // L'image par défaut est la vue aérienne du bâtiment
+  assert.equal(hiddenValue(document, 'loc_batiment_vue'), 'vue aerienne');
+  const aerial = panel.querySelector('[data-loc-map="batiment"]');
+  assert.equal(aerial.hidden, false);
+  assert.ok(aerial.querySelector('.loc-map__fallback'), 'repli cartographique attendu sans Leaflet');
+  assert.equal(panel.querySelector('[data-loc-photo]').hidden, true);
+  assert.equal(hiddenValue(document, 'loc_batiment_photo'), 'https://exemple.test/panoramax.jpg');
+
+  // La photo extérieure reste accessible via son onglet
+  panel.querySelector('[data-loc-view="facade"]').click();
+  await wait(20);
+  const img = panel.querySelector('[data-loc-photo]');
   assert.equal(img.hidden, false);
   assert.equal(img.getAttribute('src'), 'https://exemple.test/panoramax-thumb.jpg');
-  const credit = document.querySelector('[data-loc-bloc="batiment"] [data-loc-credit]');
+  const credit = panel.querySelector('[data-loc-credit]');
   assert.match(credit.textContent, /Photographe Test/);
   assert.match(credit.textContent, /CC-BY-SA-4.0/);
   assert.match(credit.textContent, /ouvrir la source/);
-  assert.equal(hiddenValue(document, 'loc_batiment_photo'), 'https://exemple.test/panoramax.jpg');
   assert.equal(hiddenValue(document, 'loc_batiment_vue'), 'facade');
 
-  // Bascule en vue aérienne
-  document.querySelector('[data-loc-bloc="batiment"] [data-loc-view="aerienne"]').click();
+  // Retour à la vue aérienne puis validation
+  panel.querySelector('[data-loc-view="aerienne"]').click();
   await wait(20);
-  assert.equal(hiddenValue(document, 'loc_batiment_vue'), 'vue aerienne');
-  const aerial = document.querySelector('[data-loc-bloc="batiment"] [data-loc-map="batiment"]');
-  assert.equal(aerial.hidden, false);
-  assert.ok(aerial.querySelector('.loc-map__fallback'), 'repli cartographique attendu sans Leaflet');
-
-  // Validation du bâtiment
-  document.querySelector('[data-loc-bloc="batiment"] [data-loc-validate]').click();
+  panel.querySelector('[data-loc-validate]').click();
   await wait(10);
   assert.equal(hiddenValue(document, 'loc_batiment_validee'), 'oui');
-  assert.equal(document.querySelector('[data-loc-bloc="batiment"] [data-loc-badge]').textContent, 'Validée');
-  assert.match(document.querySelector('[data-loc-bloc="batiment"] [data-loc-status]').textContent, /Bâtiment validé/);
+  assert.equal(hiddenValue(document, 'loc_batiment_vue'), 'vue aerienne');
+  assert.equal(panel.querySelector('[data-loc-badge]').textContent, 'Validée');
+  assert.match(panel.querySelector('[data-loc-status]').textContent, /Bâtiment validé/);
 });
 
 test('sans photo disponible, la vue aérienne est proposée automatiquement', async () => {
@@ -377,4 +392,109 @@ test('un fournisseur de tuiles sous contrat peut remplacer le fond par défaut',
   assert.equal(providers.length, 1);
   assert.equal(providers[0].url, 'https://tuiles.exemple.test/{z}/{x}/{y}.png');
   assert.equal(providers[0].attribution, 'Tuiles Exemple');
+});
+
+test('l’adresse saisie à l’étape société préremplit et lance la localisation', async () => {
+  const { window, document } = await createPage({
+    'data.geopf.fr': geopfPayload(),
+    'photon.komoot.io': { features: [] },
+    'api.panoramax.xyz': panoramaxPayload(),
+    'commons.wikimedia.org': { query: { pages: {} } }
+  });
+  setCompanyFields(document, {
+    societe: 'Boulangerie Test',
+    adresse: '12 rue de la Paix',
+    code_postal: '75002',
+    ville: 'Paris'
+  });
+
+  const result = await window.LocalisationEntreprise.prefill();
+  await wait(80);
+
+  assert.ok(result, 'une adresse est attendue');
+  assert.equal(
+    document.querySelector('[data-loc-bloc="localisation"] [data-loc-address]').textContent,
+    '12 Rue de la Paix 75002 Paris'
+  );
+  assert.equal(
+    document.querySelector('[data-loc-bloc="batiment"] [data-loc-address]').textContent,
+    '12 Rue de la Paix 75002 Paris'
+  );
+  assert.equal(hiddenValue(document, 'loc_code_postal'), '75002');
+  assert.equal(hiddenValue(document, 'loc_batiment_photo'), 'https://exemple.test/panoramax.jpg');
+  assert.equal(hiddenValue(document, 'loc_batiment_vue'), 'vue aerienne');
+  assert.equal(document.getElementById('loc-modal-localisation').hidden, true, 'aucune modale ne doit s’ouvrir');
+  assert.equal(document.getElementById('loc-modal-batiment').hidden, true);
+});
+
+test('les modales reprennent l’adresse saisie à l’étape société', async () => {
+  const { window, document } = await createPage();
+  setCompanyFields(document, {
+    societe: 'Boulangerie Test',
+    adresse: '12 rue de la Paix',
+    code_postal: '75002',
+    ville: 'Paris'
+  });
+  const modal = openSearch(window, 'localisation');
+  assert.equal(modal.querySelector('[data-field="company"] input').value, 'Boulangerie Test');
+  assert.equal(modal.querySelector('[data-field="street"] input').value, '12 rue de la Paix');
+  assert.equal(modal.querySelector('[data-field="postcode"] input').value, '75002');
+  assert.equal(modal.querySelector('[data-field="city"] input').value, 'Paris');
+});
+
+test('sans adresse complète, aucune recherche automatique n’est lancée', async () => {
+  let calls = 0;
+  const { window, document } = await createPage({
+    'data.geopf.fr': () => { calls += 1; return geopfPayload(); }
+  });
+  setCompanyFields(document, { societe: 'Boulangerie Test', adresse: '12 rue de la Paix' });
+
+  const result = await window.LocalisationEntreprise.prefill();
+  await wait(40);
+
+  assert.equal(result, null);
+  assert.equal(calls, 0, 'aucun appel réseau sans code postal et ville');
+  assert.equal(document.querySelector('[data-loc-bloc="localisation"] [data-loc-address]').getAttribute('data-empty'), '1');
+  const modal = openSearch(window, 'localisation');
+  assert.equal(modal.querySelector('[data-field="street"] input').value, '12 rue de la Paix');
+  assert.equal(modal.querySelector('[data-field="postcode"] input').value, '');
+});
+
+test('l’affichage de l’étape déclenche la reprise automatique de l’adresse', async () => {
+  let calls = 0;
+  const { window, document } = await createPage({
+    'data.geopf.fr': () => { calls += 1; return geopfPayload(); },
+    'photon.komoot.io': { features: [] },
+    'api.panoramax.xyz': { features: [] },
+    'commons.wikimedia.org': { query: { pages: {} } }
+  });
+  // jsdom ne calcule pas de mise en page : on simule une étape visible.
+  const section = document.getElementById('loc-section');
+  window.Element.prototype.getClientRects = function () {
+    return this === section ? [{ width: 10, height: 10 }] : [];
+  };
+  Object.defineProperty(window.HTMLElement.prototype, 'offsetParent', {
+    configurable: true,
+    get() { return this === section ? document.body : null; }
+  });
+  setCompanyFields(document, {
+    societe: 'Boulangerie Test',
+    adresse: '12 rue de la Paix',
+    code_postal: '75002',
+    ville: 'Paris'
+  });
+
+  // Le wizard affiche l'étape en modifiant son style : l'observateur réagit.
+  section.style.display = 'block';
+  await wait(150);
+
+  assert.equal(calls, 1, 'une seule recherche automatique');
+  assert.equal(
+    document.querySelector('[data-loc-bloc="localisation"] [data-loc-address]').textContent,
+    '12 Rue de la Paix 75002 Paris'
+  );
+  assert.equal(
+    document.querySelector('[data-loc-bloc="batiment"] [data-loc-address]').textContent,
+    '12 Rue de la Paix 75002 Paris'
+  );
 });
