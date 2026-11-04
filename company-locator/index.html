@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Company Locator France — Recherche &amp; géolocalisation d'entreprises</title>
+  <meta name="description" content="Retrouvez une entreprise française par nom, code postal, ville ou SIREN/SIRET : adresse exacte, coordonnées GPS, carte interactive, photographie aérienne IGN et photos de rue.">
+  <meta name="theme-color" content="#2563eb">
+  <meta name="color-scheme" content="light">
+  <link rel="icon" type="image/svg+xml" href="assets/logo/favicon.svg">
+
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/map.css">
+  <link rel="stylesheet" href="css/responsive.css">
+</head>
+<body>
+  <a class="skip-link" href="#champ-nom">Aller au formulaire de recherche</a>
+
+  <!-- ============================ HEADER ============================ -->
+  <header class="app-header">
+    <div class="brand">
+      <img class="brand-logo" src="assets/logo/logo.svg" alt="" width="40" height="40">
+      <div class="brand-text">
+        <h1 class="brand-title">Company Locator <span>France</span></h1>
+        <p class="brand-sub">Entreprises · adresses · GPS · imagerie</p>
+      </div>
+    </div>
+
+    <div class="header-actions">
+      <button type="button" id="btn-status" class="status-pill" aria-expanded="false" aria-controls="status-panel"
+              title="État de connexion aux API publiques">
+        <span class="status-dot" data-state="unknown" aria-hidden="true"></span>
+        <span class="status-label">Vérification des API…</span>
+      </button>
+      <button type="button" id="btn-history" class="btn btn-ghost">
+        <span class="icon icon--history" aria-hidden="true"></span><span class="btn-text">Historique</span>
+      </button>
+      <button type="button" id="btn-settings" class="btn btn-ghost">
+        <span class="icon icon--settings" aria-hidden="true"></span><span class="btn-text">Paramètres</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Panneau d'état des API (ouvert par le bouton ci-dessus) -->
+  <section id="status-panel" class="status-panel" hidden aria-label="État des services">
+    <div class="status-panel-head">
+      <h2>État des services</h2>
+      <button type="button" class="icon-btn" data-close="status-panel" aria-label="Fermer">
+        <span class="icon icon--close" aria-hidden="true"></span>
+      </button>
+    </div>
+    <ul id="status-list" class="status-list"></ul>
+    <div class="status-panel-foot">
+      <button type="button" id="btn-recheck" class="btn btn-sm btn-outline">
+        <span class="icon icon--reset" aria-hidden="true"></span>Retester
+      </button>
+      <p class="muted-xs" id="status-transport">Test réel : une requête légère est envoyée à chaque service.</p>
+    </div>
+  </section>
+
+  <noscript>
+    <div class="banner banner-error">Cette application nécessite JavaScript. Activez-le puis rechargez la page.</div>
+  </noscript>
+  <div id="boot-error" class="banner banner-error" hidden></div>
+
+  <main class="app-main">
+    <!-- ========================== RECHERCHE ========================== -->
+    <section class="card search-card" aria-labelledby="titre-recherche">
+      <div class="card-head">
+        <h2 id="titre-recherche"><span class="icon icon--search" aria-hidden="true"></span>Rechercher une entreprise</h2>
+        <p class="card-sub">Zone couverte : France (métropole et DROM). Au moins un champ doit être renseigné.</p>
+      </div>
+
+      <form id="search-form" novalidate autocomplete="off">
+        <div class="field-grid">
+          <div class="field field-wide">
+            <label for="champ-nom">Nom ou raison sociale</label>
+            <input type="text" id="champ-nom" name="nom" placeholder="Ex. Allianz, AXA, Renault, boulangerie…"
+                   inputmode="search" maxlength="120" aria-describedby="aide-nom">
+            <p class="field-help" id="aide-nom">Dénomination, sigle ou nom commercial.</p>
+          </div>
+
+          <div class="field">
+            <label for="champ-cp">Code postal</label>
+            <input type="text" id="champ-cp" name="codePostal" placeholder="75015" inputmode="numeric"
+                   maxlength="5" aria-describedby="aide-cp">
+            <p class="field-help" id="aide-cp">5 caractères (ex. 75015, 20000, 97100).</p>
+          </div>
+
+          <div class="field">
+            <label for="champ-ville">Ville <span class="opt">facultatif</span></label>
+            <input type="text" id="champ-ville" name="ville" placeholder="Paris" maxlength="80" list="villes-suggestions">
+            <datalist id="villes-suggestions"></datalist>
+            <p class="field-help">Filtrage par commune (code INSEE).</p>
+          </div>
+        </div>
+
+        <details class="advanced" id="advanced-search">
+          <summary><span class="icon icon--filter" aria-hidden="true"></span>Recherche avancée</summary>
+          <div class="field-grid">
+            <div class="field field-wide">
+              <label for="champ-adresse">Adresse <span class="opt">facultatif</span></label>
+              <input type="text" id="champ-adresse" name="adresse" placeholder="15 rue de Vaugirard" maxlength="140">
+              <p class="field-help">Sert à affiner et à vérifier la position GPS.</p>
+            </div>
+            <div class="field">
+              <label for="champ-identifiant">SIREN ou SIRET <span class="opt">facultatif</span></label>
+              <input type="text" id="champ-identifiant" name="identifiant" placeholder="9 chiffres ou 14 chiffres"
+                     inputmode="numeric" maxlength="20">
+              <p class="field-help">Les espaces sont ignorés. Clé de Luhn vérifiée.</p>
+            </div>
+            <div class="field">
+              <label for="champ-etat">État des établissements</label>
+              <select id="champ-etat" name="etat">
+                <option value="tous">Tous (actifs et fermés)</option>
+                <option value="A" selected>Actifs uniquement</option>
+                <option value="C">Fermés uniquement</option>
+              </select>
+              <p class="field-help">Filtré sur l'état de l'établissement.</p>
+            </div>
+          </div>
+        </details>
+
+        <div class="form-actions">
+          <button type="submit" id="btn-search" class="btn btn-primary">
+            <span class="icon icon--search" aria-hidden="true"></span>Rechercher
+          </button>
+          <button type="reset" id="btn-reset" class="btn btn-outline">
+            <span class="icon icon--reset" aria-hidden="true"></span>Réinitialiser
+          </button>
+          <span class="form-hint muted-xs">Astuce : <kbd>/</kbd> place le curseur dans le champ nom.</span>
+        </div>
+
+        <p id="form-error" class="form-error" role="alert" hidden></p>
+      </form>
+
+      <div class="examples">
+        <span class="muted-xs">Exemples :</span>
+        <button type="button" class="chip chip-example" data-nom="Allianz" data-cp="75015">Allianz · 75015</button>
+        <button type="button" class="chip chip-example" data-nom="AXA" data-cp="69002">AXA · 69002</button>
+        <button type="button" class="chip chip-example" data-nom="Renault" data-cp="59000">Renault · 59000</button>
+        <button type="button" class="chip chip-example" data-nom="" data-cp="33000">Code postal seul · 33000</button>
+      </div>
+    </section>
+
+    <!-- ==================== NAVIGATION MOBILE ==================== -->
+    <nav class="viewbar" role="tablist" aria-label="Affichage">
+      <button type="button" class="viewbar-btn is-active" role="tab" aria-selected="true" data-view="results">
+        <span class="icon icon--list" aria-hidden="true"></span>Résultats <span id="viewbar-count" class="count-badge">0</span>
+      </button>
+      <button type="button" class="viewbar-btn" role="tab" aria-selected="false" data-view="map">
+        <span class="icon icon--map" aria-hidden="true"></span>Carte
+      </button>
+      <button type="button" class="viewbar-btn" role="tab" aria-selected="false" data-view="detail">
+        <span class="icon icon--building" aria-hidden="true"></span>Fiche
+      </button>
+    </nav>
+
+    <!-- ========================= WORKSPACE ========================= -->
+    <div class="workspace" id="workspace" data-view="results">
+      <!-- ------------------------- RÉSULTATS ------------------------- -->
+      <section class="pane pane-results card" id="pane-results" aria-labelledby="titre-resultats">
+        <div class="card-head results-head">
+          <div>
+            <h2 id="titre-resultats">Résultats</h2>
+            <p class="card-sub" id="results-summary">Aucune recherche effectuée.</p>
+          </div>
+          <div class="results-tools">
+            <label class="sr-only" for="champ-tri">Trier les résultats</label>
+            <select id="champ-tri" class="select-sm" title="Trier les résultats">
+              <option value="pertinence">Pertinence</option>
+              <option value="nom">Nom (A→Z)</option>
+              <option value="actifs">Actifs d'abord</option>
+              <option value="commune">Commune</option>
+            </select>
+            <button type="button" id="btn-export-results" class="btn btn-sm btn-outline" disabled
+                    title="Exporter les résultats affichés au format CSV">
+              <span class="icon icon--download" aria-hidden="true"></span>CSV
+            </button>
+            <button type="button" id="btn-export-geojson" class="btn btn-sm btn-outline" disabled
+                    title="Exporter les établissements géolocalisés au format GeoJSON">
+              <span class="icon icon--map" aria-hidden="true"></span>GeoJSON
+            </button>
+          </div>
+        </div>
+
+        <div id="results-notice" class="notice" hidden></div>
+        <div id="results-status" class="sr-only" role="status" aria-live="polite"></div>
+        <ul id="results-list" class="results-list"></ul>
+        <nav id="pagination" class="pagination" aria-label="Pagination des résultats" hidden></nav>
+      </section>
+
+      <!-- --------------------- CARTE + FICHE --------------------- -->
+      <div class="pane pane-detail" id="pane-detail">
+        <section class="card map-card" id="map-card" aria-labelledby="titre-carte">
+          <div class="card-head map-head">
+            <h2 id="titre-carte"><span class="icon icon--map" aria-hidden="true"></span>Carte</h2>
+            <div class="map-tools">
+              <div class="segmented" role="group" aria-label="Fond de carte">
+                <button type="button" class="seg-btn is-active" data-baselayer="osm">Plan OSM</button>
+                <button type="button" class="seg-btn" data-baselayer="planign">Plan IGN</button>
+                <button type="button" class="seg-btn" data-baselayer="ortho">
+                  <span class="icon icon--satellite" aria-hidden="true"></span>Photo aérienne
+                </button>
+              </div>
+              <button type="button" id="btn-recenter" class="icon-btn" title="Recentrer sur l'ensemble des résultats" aria-label="Recentrer la carte">
+                <span class="icon icon--target" aria-hidden="true"></span>
+              </button>
+              <button type="button" id="btn-copy-gps" class="icon-btn" title="Copier les coordonnées GPS affichées" aria-label="Copier les coordonnées GPS" disabled>
+                <span class="icon icon--copy" aria-hidden="true"></span>
+              </button>
+              <button type="button" id="btn-fullscreen" class="icon-btn" title="Plein écran" aria-label="Passer la carte en plein écran">
+                <span class="icon icon--expand" aria-hidden="true"></span>
+              </button>
+            </div>
+          </div>
+
+          <div class="map-wrap">
+            <div id="map" role="application" aria-label="Carte interactive des établissements"></div>
+            <div id="map-overlay" class="map-overlay" hidden></div>
+          </div>
+
+          <div class="map-foot">
+            <p id="map-readout" class="map-readout muted-xs">Déplacez la carte ou sélectionnez un établissement.</p>
+            <p class="map-credits muted-xs" id="map-credits"></p>
+          </div>
+        </section>
+
+        <!-- Fiche détaillée : rendue par js/ui.js -->
+        <section class="card detail-card" id="detail-card" aria-labelledby="titre-fiche" hidden></section>
+      </div>
+    </div>
+  </main>
+
+  <!-- ============================ FOOTER ============================ -->
+  <footer class="app-footer">
+    <p>
+      <strong>Company Locator France</strong> — application locale, sans compte ni abonnement.
+      Données : <a href="https://recherche-entreprises.api.gouv.fr/docs/" target="_blank" rel="noopener noreferrer">API Recherche d'entreprises (DINUM)</a>,
+      <a href="https://cartes.gouv.fr/aide/fr/guides-utilisateur/utiliser-les-services-de-la-geoplateforme/geocodage/" target="_blank" rel="noopener noreferrer">Géoplateforme IGN / BAN</a>,
+      <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a>,
+      <a href="https://www.mapillary.com/" target="_blank" rel="noopener noreferrer">Mapillary</a>,
+      <a href="https://panoramax.fr/" target="_blank" rel="noopener noreferrer">Panoramax</a>.
+    </p>
+    <p class="muted-xs">
+      Les coordonnées et les images proviennent exclusivement de ces services publics ouverts.
+      Aucune donnée n'est envoyée à un serveur tiers autre que ces API. Voir <a href="README.md" target="_blank" rel="noopener">README.md</a> pour les licences et les limites.
+    </p>
+  </footer>
+
+  <!-- ============================ TOASTS ============================ -->
+  <div id="toasts" class="toasts" role="region" aria-label="Notifications"></div>
+
+  <!-- ========================== PARAMÈTRES ========================== -->
+  <div class="modal" id="modal-settings" hidden>
+    <div class="modal-backdrop" data-close="modal-settings"></div>
+    <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="titre-settings">
+      <div class="modal-head">
+        <h2 id="titre-settings"><span class="icon icon--settings" aria-hidden="true"></span>Paramètres</h2>
+        <button type="button" class="icon-btn" data-close="modal-settings" aria-label="Fermer les paramètres">
+          <span class="icon icon--close" aria-hidden="true"></span>
+        </button>
+      </div>
+      <div class="modal-body" id="settings-body"><!-- rendu par js/ui.js --></div>
+      <div class="modal-foot">
+        <button type="button" class="btn btn-primary" data-close="modal-settings">Fermer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================== HISTORIQUE ========================== -->
+  <div class="modal" id="modal-history" hidden>
+    <div class="modal-backdrop" data-close="modal-history"></div>
+    <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="titre-history">
+      <div class="modal-head">
+        <h2 id="titre-history"><span class="icon icon--history" aria-hidden="true"></span>Historique &amp; fiches enregistrées</h2>
+        <button type="button" class="icon-btn" data-close="modal-history" aria-label="Fermer l'historique">
+          <span class="icon icon--close" aria-hidden="true"></span>
+        </button>
+      </div>
+      <div class="modal-body" id="history-body"><!-- rendu par js/ui.js --></div>
+      <div class="modal-foot">
+        <button type="button" class="btn btn-outline" id="btn-export-favorites">
+          <span class="icon icon--download" aria-hidden="true"></span>Exporter les fiches (JSON)
+        </button>
+        <button type="button" class="btn btn-primary" data-close="modal-history">Fermer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================== LIGHTBOX =========================== -->
+  <div class="lightbox" id="lightbox" hidden>
+    <div class="lightbox-backdrop" data-close="lightbox"></div>
+    <figure class="lightbox-box" role="dialog" aria-modal="true" aria-label="Photographie agrandie">
+      <button type="button" class="icon-btn lightbox-close" data-close="lightbox" aria-label="Fermer la photographie">
+        <span class="icon icon--close" aria-hidden="true"></span>
+      </button>
+      <button type="button" class="icon-btn lightbox-nav lightbox-prev" id="lightbox-prev" aria-label="Photographie précédente">
+        <span class="icon icon--chevron-left" aria-hidden="true"></span>
+      </button>
+      <img id="lightbox-img" alt="">
+      <button type="button" class="icon-btn lightbox-nav lightbox-next" id="lightbox-next" aria-label="Photographie suivante">
+        <span class="icon icon--chevron-right" aria-hidden="true"></span>
+      </button>
+      <figcaption id="lightbox-caption"></figcaption>
+    </figure>
+  </div>
+
+  <!-- Leaflet est servi localement (aucun CDN requis) -->
+  <script src="vendor/leaflet/leaflet.js" defer></script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

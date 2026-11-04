@@ -1,0 +1,26 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          2.3522,
+          48.8566
+        ]
+      },
+      "properties": {
+        "label": "Paris",
+        "score": 0.98,
+        "id": "75056",
+        "name": "Paris",
+        "postcode": "75001",
+        "city": "Paris",
+        "citycode": "75056",
+        "context": "75, Île-de-France",
+        "type": "municipality"
+      }
+    }
+  ]
+}

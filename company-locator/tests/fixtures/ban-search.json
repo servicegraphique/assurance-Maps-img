@@ -1,0 +1,52 @@
+{
+  "_NOTE": "Réponse BAN/Géoplateforme synthétique (structure GeoJSON officielle) pour les tests.",
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          2.30012,
+          48.84123
+        ]
+      },
+      "properties": {
+        "label": "15 Rue de Vaugirard 75015 Paris",
+        "score": 0.93,
+        "id": "75115_9575_00015",
+        "housenumber": "15",
+        "name": "15 Rue de Vaugirard",
+        "postcode": "75015",
+        "city": "Paris",
+        "citycode": "75115",
+        "context": "75, Paris, Île-de-France",
+        "type": "housenumber",
+        "street": "Rue de Vaugirard",
+        "type_position": "entrée",
+        "certification_commune": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          2.301,
+          48.842
+        ]
+      },
+      "properties": {
+        "label": "Rue de Vaugirard 75015 Paris",
+        "score": 0.61,
+        "id": "75115_9575",
+        "name": "Rue de Vaugirard",
+        "postcode": "75015",
+        "city": "Paris",
+        "citycode": "75115",
+        "context": "75, Paris, Île-de-France",
+        "type": "street"
+      }
+    }
+  ]
+}

@@ -1,0 +1,86 @@
+{
+  "_NOTE": "Réponse STAC Panoramax synthétique pour les tests (aucune photo réelle).",
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          2.3002,
+          48.8413
+        ]
+      },
+      "properties": {
+        "datetime": "2024-05-14T10:22:00Z",
+        "view:azimuth": 184.5,
+        "pers:interior_orientation": {
+          "field_of_view": 360
+        },
+        "license": "CC-BY-SA-4.0",
+        "providers": [
+          {
+            "name": "Instance de test",
+            "roles": [
+              "producer"
+            ]
+          }
+        ]
+      },
+      "assets": {
+        "thumb": {
+          "href": "https://example.invalid/thumb1.jpg"
+        },
+        "sd": {
+          "href": "https://example.invalid/sd1.jpg"
+        },
+        "hd": {
+          "href": "https://example.invalid/hd1.jpg"
+        }
+      },
+      "links": [
+        {
+          "rel": "self",
+          "href": "https://example.invalid/api/collections/x/items/1"
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000002",
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          2.3009,
+          48.8418
+        ]
+      },
+      "properties": {
+        "datetime": "2023-11-02T09:00:00Z",
+        "view:azimuth": 40.0,
+        "pers:interior_orientation": {
+          "field_of_view": 75
+        },
+        "license": "etalab-2.0",
+        "providers": [
+          {
+            "name": "Autre instance",
+            "roles": [
+              "producer"
+            ]
+          }
+        ]
+      },
+      "assets": {
+        "thumb": {
+          "href": "https://example.invalid/thumb2.jpg"
+        },
+        "hd": {
+          "href": "https://example.invalid/hd2.jpg"
+        }
+      },
+      "links": []
+    }
+  ]
+}
