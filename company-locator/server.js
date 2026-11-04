@@ -49,7 +49,28 @@ function readToken() {
   return '';
 }
 
+/**
+ * Clé Google Maps Embed (optionnelle).
+ * L'API Maps Embed est gratuite et illimitée, mais Google exige un projet
+ * Cloud avec facturation activée. La clé reste côté serveur : le navigateur
+ * appelle /api/streetview/embed, le serveur redirige en ajoutant la clé.
+ */
+function readGoogleKey() {
+  if (process.env.GOOGLE_MAPS_EMBED_KEY?.trim()) return process.env.GOOGLE_MAPS_EMBED_KEY.trim();
+  try {
+    const file = path.join(ROOT, 'server.config.json');
+    if (fs.existsSync(file)) {
+      const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+      if (typeof parsed.googleMapsEmbedKey === 'string' && parsed.googleMapsEmbedKey.trim()) {
+        return parsed.googleMapsEmbedKey.trim();
+      }
+    }
+  } catch { /* déjà signalé par readToken() */ }
+  return '';
+}
+
 let TOKEN = readToken();
+let GOOGLE_KEY = readGoogleKey();
 
 /* ------------------------------------------------------------------ */
 /* 2. Utilitaires HTTP                                                 */
@@ -211,6 +232,85 @@ function publicRateLimited() {
   return false;
 }
 
+/* ------------------------------------------------------------------ */
+/* Google Street View — la clé ne quitte jamais le serveur             */
+/* ------------------------------------------------------------------ */
+
+let streetViewWindowStart = 0;
+let streetViewCount = 0;
+function streetViewRateLimited() {
+  const now = Date.now();
+  if (now - streetViewWindowStart > 1000) { streetViewWindowStart = now; streetViewCount = 0; }
+  streetViewCount += 1;
+  return streetViewCount > 8;
+}
+
+function handleStreetView(request, response, url) {
+  if (url.pathname === '/api/streetview/status') {
+    return sendJson(response, 200, {
+      configured: Boolean(GOOGLE_KEY),
+      // Aucune clé, aucun fragment de clé : seulement un booléen et un message.
+      message: GOOGLE_KEY
+        ? 'Clé Google Maps Embed chargée côté serveur. Elle n\'est jamais transmise au JavaScript public.'
+        : 'Google Street View non configuré. Panoramax fournit une vue immersive 360° sans aucune clé. '
+          + 'Pour activer Google : renseignez googleMapsEmbedKey dans server.config.json (API Maps Embed gratuite et illimitée, '
+          + 'mais un projet Google Cloud avec facturation activée est requis).',
+    });
+  }
+
+  if (url.pathname !== '/api/streetview/embed') {
+    return sendJson(response, 404, { error: 'Route inconnue' });
+  }
+
+  if (!GOOGLE_KEY) {
+    return sendJson(response, 501, {
+      configured: false,
+      error: 'Google Street View non configuré',
+      message: 'Renseignez googleMapsEmbedKey dans server.config.json puis relancez node server.js. '
+        + 'Panoramax reste disponible sans clé.',
+    });
+  }
+
+  if (streetViewRateLimited()) {
+    return sendJson(response, 429, { error: 'Trop de requêtes', message: 'Limite locale de 8 requêtes/seconde atteinte.' });
+  }
+
+  // Attention : Number(null) vaut 0. Un paramètre ABSENT doit être refusé,
+  // jamais interprété comme la coordonnée 0 (golfe de Guinée).
+  const rawLat = url.searchParams.get('lat');
+  const rawLon = url.searchParams.get('lon');
+  const lat = rawLat !== null && rawLat.trim() !== '' ? Number(rawLat) : NaN;
+  const lon = rawLon !== null && rawLon.trim() !== '' ? Number(rawLon) : NaN;
+  if (!Number.isFinite(lat) || !Number.isFinite(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+    return sendJson(response, 400, { error: 'Coordonnées invalides', message: 'Paramètres lat et lon attendus, en degrés décimaux.' });
+  }
+
+  const bounded = (raw, min, max, fallback) => {
+    const value = Number(raw);
+    return Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback;
+  };
+  const heading = ((bounded(url.searchParams.get('heading'), -3600, 3600, 0) % 360) + 360) % 360;
+
+  const target = new URL('https://www.google.com/maps/embed/v1/streetview');
+  target.searchParams.set('key', GOOGLE_KEY);
+  target.searchParams.set('location', `${lat},${lon}`);
+  target.searchParams.set('heading', heading.toFixed(1));
+  target.searchParams.set('pitch', bounded(url.searchParams.get('pitch'), -90, 90, 0).toFixed(1));
+  target.searchParams.set('fov', bounded(url.searchParams.get('fov'), 10, 100, 90).toFixed(0));
+  target.searchParams.set('radius', String(Math.round(bounded(url.searchParams.get('radius'), 1, 1000, 50))));
+
+  // Redirection : la clé est ajoutée ici, jamais dans une réponse JSON ni
+  // dans un fichier servi au navigateur.
+  response.writeHead(302, {
+    Location: target.toString(),
+    'Cache-Control': 'no-store',
+    'Referrer-Policy': 'no-referrer',
+    'X-Content-Type-Options': 'nosniff',
+  });
+  response.end();
+  return undefined;
+}
+
 async function handlePublicProxy(request, response, url) {
   const prefix = Object.keys(PUBLIC_PROXIES).find((key) => url.pathname.startsWith(key));
   if (!prefix) return sendJson(response, 404, { error: 'Relais inconnu' });
@@ -329,8 +429,13 @@ const server = http.createServer(async (request, response) => {
       app: 'Company Locator France',
       version: '1.0.0',
       mapillaryConfigured: Boolean(TOKEN),
+      googleStreetViewConfigured: Boolean(GOOGLE_KEY),
       node: process.version,
     });
+  }
+
+  if (url.pathname.startsWith('/api/streetview/')) {
+    return handleStreetView(request, response, url);
   }
 
   if (url.pathname.startsWith('/api/mapillary')) {
@@ -343,7 +448,8 @@ const server = http.createServer(async (request, response) => {
 
   if (url.pathname === '/api/reload-token') {
     TOKEN = readToken();
-    return sendJson(response, 200, { configured: Boolean(TOKEN) });
+    GOOGLE_KEY = readGoogleKey();
+    return sendJson(response, 200, { configured: Boolean(TOKEN), googleStreetViewConfigured: Boolean(GOOGLE_KEY) });
   }
 
   return serveStatic(request, response, url);

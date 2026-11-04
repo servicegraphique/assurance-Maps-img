@@ -137,6 +137,7 @@ async function fakeFetch(input) {
   }
   if (url.includes('/geocodage/reverse')) return jsonResponse(FIXTURES.ban);
   if (url.includes('api.panoramax.xyz') || url.startsWith('/api/proxy/panoramax')) return jsonResponse(FIXTURES.panoramax);
+  if (url.includes('/api/streetview/status')) return jsonResponse({ configured: false, message: 'Non configuré (test).' });
   if (url.includes('/api/mapillary/status')) return jsonResponse({ configured: true });
   if (url.includes('/api/mapillary/images')) return jsonResponse(FIXTURES.mapillary);
 
@@ -322,6 +323,88 @@ check('La navigation entre photographies fonctionne', () => {
 });
 window.document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
 check('Échap ferme la lightbox', () => assert.equal($('#lightbox').hidden, true));
+
+/* --------------------- D. Vue immersive Street View ---------------- */
+
+await waitFor(() => $$('#streetview-host .sv-provider').length > 0, 'rendu de la section immersive');
+
+check('La section « Vue immersive 360° » propose les trois sources', () => {
+  const labels = $$('#streetview-host .sv-provider').map((node) => node.textContent);
+  assert.equal(labels.length, 3);
+  assert.match(labels.join(' '), /Panoramax 360/);
+  assert.match(labels.join(' '), /Mapillary 360/);
+  assert.match(labels.join(' '), /Google Street View/);
+});
+
+check('Aucun iframe tiers n\'est créé avant un clic explicite', () => {
+  assert.equal($$('#streetview-host iframe').length, 0);
+  assert.equal(networkCalls.some((url) => url.includes('/api/streetview/embed')), false);
+  assert.ok($('#streetview-host .sv-launch'), 'bouton de chargement absent');
+  assert.match($('#streetview-host .sv-consent').textContent, /avant votre clic/);
+});
+
+check('Google Street View est annoncé indisponible avec sa vraie raison', () => {
+  const google = $$('#streetview-host .sv-provider').find((node) => /Google/.test(node.textContent));
+  assert.equal(google.disabled, true);
+  assert.match(google.title, /facturation activée/);
+});
+
+check('Panoramax est prêt sans clé et sélectionné par défaut', () => {
+  const panoramax = $$('#streetview-host .sv-provider').find((node) => /Panoramax/.test(node.textContent));
+  assert.equal(panoramax.disabled, false);
+  assert.equal(panoramax.classList.contains('is-active'), true);
+  assert.match(panoramax.textContent, /sans clé/);
+});
+
+click($('#streetview-host .sv-launch'));
+await waitFor(() => $$('#streetview-host iframe').length === 1, 'chargement du viewer immersif');
+
+check('Le clic charge le viewer immersif Panoramax dans un cadre durci', () => {
+  const frame = $('#streetview-host iframe');
+  assert.match(frame.src, /^https:\/\/api\.panoramax\.xyz\/#focus=pic&pic=/);
+  assert.match(frame.getAttribute('sandbox'), /allow-scripts/);
+  assert.match(frame.getAttribute('sandbox'), /allow-same-origin/);
+  assert.equal(frame.getAttribute('referrerpolicy'), 'no-referrer');
+  assert.equal(frame.getAttribute('allowfullscreen'), 'true');
+  assert.ok(frame.title.length > 10);
+});
+
+check('Aucun jeton ni clé dans l\'URL du cadre immersif', () => {
+  const src = $('#streetview-host iframe').src;
+  assert.equal(/access_token|client_token|key=|AIza|MLY\|/.test(src), false, src);
+});
+
+check('La source, la date et la licence de la vue immersive sont affichées', () => {
+  const caption = $('#streetview-host .sv-caption').textContent;
+  assert.match(caption, /Licence/);
+  assert.match(caption, /360° immersif|Photographie plane/);
+});
+
+const capAvant = $('#streetview-host iframe').src;
+const boutonDroite = $$('#streetview-host .sv-toolbar .btn').find((node) => /45°/.test(node.textContent));
+click(boutonDroite);
+await waitFor(() => $('#streetview-host iframe')?.src !== capAvant, 'réorientation du viewer');
+check('Le cap est pilotable et se répercute dans l\'URL du viewer', () => {
+  assert.match($('#streetview-host .sv-heading').textContent, /Cap \d+°/);
+  assert.notEqual($('#streetview-host iframe').src, capAvant);
+  assert.match($('#streetview-host iframe').src, /xyz=/);
+});
+
+const boutonNord = $$('#streetview-host .sv-compass .btn').find((node) => node.textContent === 'N');
+click(boutonNord);
+await waitFor(() => /xyz=0\.00\//.test($('#streetview-host iframe')?.src || ''), 'cap nord');
+check('Les points cardinaux orientent la vue', () => {
+  assert.match($('#streetview-host iframe').src, /xyz=0\.00\//);
+});
+
+const boutonFermer = $$('#streetview-host .sv-toolbar .btn').find((node) => /Fermer la vue/.test(node.textContent));
+click(boutonFermer);
+await waitFor(() => $$('#streetview-host iframe').length === 0, 'fermeture du viewer');
+check('Fermer la vue retire l\'iframe et revient à l\'affiche de consentement', () => {
+  assert.equal($$('#streetview-host iframe').length, 0);
+  assert.ok($('#streetview-host .sv-launch'));
+});
+
 
 /* ------------------------- Bascule de fond ------------------------- */
 

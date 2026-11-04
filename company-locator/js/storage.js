@@ -112,6 +112,7 @@ const DEFAULT_SETTINGS = {
   fuzzyFallback: config.search.fuzzyFallback,
   streetProviders: config.imagery.streetProviders,
   streetRadiusM: config.imagery.streetRadiusM,
+  streetViewProvider: config.streetView.preferredProvider,
   defaultBaseLayer: config.map.defaultBaseLayer,
   autoOpenAerial: false,
 };

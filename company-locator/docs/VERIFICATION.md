@@ -11,8 +11,8 @@ Ce document distingue honnêtement **ce qui a été exécuté et vérifié** de 
 ### 1.1 Tests unitaires — `npm test`
 
 ```
-# tests 101
-# pass  101
+# tests 125
+# pass  125
 # fail  0
 ```
 
@@ -24,6 +24,7 @@ Ce document distingue honnêtement **ce qui a été exécuté et vérifié** de 
 | `tests/unit/geocoding.test.mjs` | **Toute l'arbre de décision GPS** : BAN numéro de voie prioritaire, confirmation par `geo_id`, repli SIRENE, précision voie/commune, divergence > 300 m, coordonnées aberrantes, absence de position, non-diffusible, géocodage inverse |
 | `tests/unit/export-storage.test.mjs` | CSV (BOM, `;`, CRLF, anti-injection de formule), 23 colonnes, GeoJSON EPSG:4326, export de fiche, paramètres, **historique opt-in**, favoris, photos sourcées, purge, indisponibilité du `localStorage` |
 | `tests/unit/images.test.mjs` | Détection du mode Mapillary (proxy / direct / aucun), Panoramax `place_position` + repli `bbox`, filtrage par rayon, tri par distance, dédoublonnage, normalisation des dates/licences, statut par fournisseur, photos complémentaires (source obligatoire) |
+| `tests/unit/streetview.test.mjs` | Vues immersives : URL Panoramax/Mapillary/Google, cap normalisé et borné, classement sphérique avant plat, disponibilité par source, **refus des coordonnées absentes** (`Number(null) === 0`), aucune clé dans les URL, durcissement du cadre |
 | `tests/unit/transport.test.mjs` | Correspondance URL publique ↔ relais local pour les trois services, **refus des origines non déclarées**, comportement hors navigateur, propagation des erreurs HTTP métier |
 
 ### 1.2 Cascade CSS — `npm run test:css`
@@ -56,7 +57,7 @@ cas du navigateur sans support des modules.
 ### 1.4 Intégration DOM — `npm run test:dom`
 
 ```
-42/42 vérifications réussies.
+52/52 vérifications réussies.
 Parcours complet validé sans erreur.
 ```
 
@@ -75,6 +76,7 @@ Parcours couvert :
 9. Lien profond `#/etablissement/{siret}` restauré au chargement.
 10. Onglet Images : **couche BD ORTHO® réellement ajoutée** à la carte aérienne, **3 photographies de rue** sourcées et datées.
 11. Lightbox : ouverture, compteur `1/3`, navigation `2/3`, fermeture par `Échap`.
+11 bis. **Vue immersive** : les trois sources sont proposées, Google est grisé avec sa vraie raison, **aucun iframe avant le clic**, chargement de Panoramax au clic dans un cadre `sandbox` + `no-referrer`, orientation par pas de 45° et points cardinaux répercutée dans l'URL, fermeture qui retire l'iframe, **aucune clé ni jeton dans l'URL du cadre**.
 12. Bascule fond de carte ↔ photographie aérienne, plein écran.
 13. Exports : CSV résultats, GeoJSON, CSV fiche — noms de fichiers et contenus vérifiés.
 14. Enregistrement d'une fiche en favori.
@@ -106,6 +108,12 @@ Exécutées contre `node server.js` en fonctionnement :
 | Relais public injoignable | HTTP 502 avec message de diagnostic en français |
 | Port 8080 déjà occupé | Bascule automatique sur 8081, vérifiée par une seconde instance (`/api/health` → 200 sur 8081) |
 | `js/boot.js` servi | HTTP 200, `text/javascript` |
+| `GET /api/streetview/status` sans clé | `configured:false` + message expliquant Panoramax comme alternative sans clé |
+| `GET /api/streetview/embed` sans clé | HTTP 501 explicite, **aucun appel à Google** |
+| `GET /api/streetview/embed` avec clé | **HTTP 302** vers Google, clé ajoutée côté serveur, `Referrer-Policy: no-referrer`, `Cache-Control: no-store` |
+| Clé Google dans les réponses | **absente** du statut, de `index.html`, de `js/streetview.js` ; `server.config.json` → **403** |
+| Coordonnées absentes ou vides | **HTTP 400** (et non 0,0) ; `lat=0&lon=0` reste accepté comme valeur légitime |
+| Paramètres hors bornes | `fov` ramené à 10–100, `pitch` à −90–90, `radius` à 1–1000 |
 
 ---
 
@@ -122,6 +130,10 @@ Exécutées contre `node server.js` en fonctionnement :
 | Couches WMTS IGN sans clé | Documentation Géoplateforme | `HR.ORTHOIMAGERY.ORTHOPHOTOS`, `ORTHOIMAGERY.ORTHOPHOTOS`, `PLANIGNV2` |
 | Panoramax lisible sans jeton | `docs.panoramax.fr/backend/api/api/` | Authentification requise **pour l'écriture seulement** |
 | Mapillary exige un jeton | Documentation Graph API v4 | Aucun appel anonyme possible → proxy + Panoramax en solution par défaut |
+| **Embed Mapillary sans jeton** | Documentation API Mapillary, section « Embed images » | `www.mapillary.com/embed?image_key=…` ne demande pas de jeton, contrairement à l'API Graph |
+| **Viewer Panoramax intégrable** | `docs.panoramax.fr/web-viewer/03_URL_settings/` | `#focus=pic&pic=…&xyz=cap/inclinaison/zoom`, utilisé en iframe par uMap et d'autres applications |
+| **Google Maps Embed gratuit** | `developers.google.com/maps/documentation/embed/quickstart` et `usage-and-billing` | Gratuit, **illimité**, sans limite QPS ni journalière — **mais** projet Cloud avec facturation activée obligatoire |
+| Viewer Panoramax trop lourd à embarquer | `registry.npmjs.org/@panoramax/web-viewer` | 2,8 Mo + MapLibre + Lit → **iframe officiel retenu** plutôt qu'un nouveau framework |
 | Licence Leaflet 1.9.4 | `registry.npmjs.org/leaflet/1.9.4` | BSD-2-Clause, fichier `LICENSE` inclus |
 
 ---
@@ -190,10 +202,10 @@ Configurer `server.config.json`, relancer, puis `node tests/live-smoke.mjs` : la
 
 | Domaine | Statut |
 |---|---|
-| Logique métier (recherche, normalisation, GPS, exports, stockage, images) | ✅ **101 tests unitaires exécutés et verts** |
+| Logique métier (recherche, normalisation, GPS, exports, stockage, images) | ✅ **125 tests unitaires exécutés et verts** |
 | Cascade CSS et éléments masqués | ✅ **16 vérifications exécutées et vertes** (test par mutation validé) |
 | Garde de démarrage (`file://`, chien de garde) | ✅ **14 vérifications exécutées et vertes** |
-| Interface et parcours complet | ✅ **42 vérifications DOM exécutées et vertes**, 0 erreur JS |
+| Interface et parcours complet | ✅ **52 vérifications DOM exécutées et vertes**, 0 erreur JS |
 | Serveur local, ressources, sécurité | ✅ **vérifié par requêtes HTTP réelles** |
 | Contrats des API (URL, paramètres, champs, quotas, licences) | ✅ **vérifiés sur les sources officielles** |
 | Appels réseau réels aux API publiques | ⏳ **à exécuter sur votre poste** — `node tests/live-smoke.mjs` |
@@ -240,3 +252,32 @@ aucun message ne pouvait s'afficher, puisque le message venait du module.
 - lanceurs double-clic `Lancer-Company-Locator.bat` et `lancer.sh` ;
 - `node server.js --open` ouvre le navigateur, et le serveur essaie les 9 ports
   suivants si le port demandé est occupé.
+
+
+---
+
+## 7. Évolution : vue immersive « Street View » 360°
+
+### Choix technique
+
+Le viewer officiel `@panoramax/web-viewer` (MIT) a été écarté : il embarque Lit, MapLibre, FontAwesome et Photo Sphere Viewer, soit **2,8 Mo** de bundle — incompatible avec l'architecture Vanilla sans framework lourd. L'**iframe officielle** Panoramax, documentée et déjà utilisée par uMap, fournit la même expérience immersive sans ajouter une seule dépendance.
+
+### Trois sources, deux sans clé
+
+| Source | Clé | Statut par défaut |
+|---|---|---|
+| Panoramax 360° | aucune | **active** |
+| Mapillary Embed | aucune pour l'affichage | active si des photos Mapillary ont été trouvées |
+| Google Street View | clé gratuite, facturation Cloud requise | **désactivée** |
+
+### Confidentialité
+
+Aucun cadre tiers n'est instancié avant un clic explicite : pas de requête, pas de cookie, pas de contexte de navigation chez le fournisseur. Le cadre est ensuite durci (`sandbox`, `referrerpolicy="no-referrer"`, `loading="lazy"`). Cette conception suit la recommandation communautaire de « click-to-load » pour les iframes Panoramax.
+
+### Défaut trouvé et corrigé pendant le développement
+
+`Number(null)` valant `0`, un paramètre `lat` ou `lon` **absent** était accepté et produisait une vue à `(0, 0)`, dans le golfe de Guinée. Corrigé côté serveur **et** côté client, avec test unitaire dédié et vérification HTTP réelle (`400` pour absent/vide, `302` pour `0,0` légitime).
+
+### Vérification réseau restante
+
+`node tests/live-smoke.mjs` teste désormais **16 points**, dont l'intégrabilité du viewer Panoramax (en-têtes `X-Frame-Options` / `frame-ancestors`), l'accessibilité de l'embed Mapillary sans jeton, et Google Street View si une clé est configurée. Comme pour le reste, ces appels réels n'ont pas pu être exécutés depuis l'environnement de développement restreint.

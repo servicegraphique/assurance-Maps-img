@@ -130,7 +130,8 @@
 /* ---------------- Impression : fiche uniquement ---------------- */
 @media print {
   .app-header, .search-card, .viewbar, .pane-results, .map-card,
-  .app-footer, .toasts, .modal, .lightbox, .detail-actions, .tabs { display: none !important; }
+  .app-footer, .toasts, .modal, .lightbox, .detail-actions, .tabs,
+  .sv-stage, .sv-toolbar, .sv-chooser { display: none !important; }
   body { background: #fff; }
   .app-main { padding: 0; }
   .workspace { display: block; }

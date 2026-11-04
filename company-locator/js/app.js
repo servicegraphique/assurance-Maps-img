@@ -17,6 +17,7 @@ import { resolvePosition, reverseGeocode, ping as pingGeocoding } from './geocod
 import { runSearch, summarize, validateCriteria, readCriteria, sortRows } from './search.js';
 import * as mapModule from './map.js';
 import * as images from './images.js';
+import * as streetview from './streetview.js';
 import { detectProxy, transportLabel, proxyState } from './transport.js';
 import * as exporter from './export.js';
 import * as ui from './ui.js';
@@ -37,6 +38,9 @@ const state = {
   fiche: null,
   positions: new Map(),
   street: { loading: false, photos: [], sources: [], error: null },
+  // D. Vue immersive : rien n'est chargé tant que `loaded` reste faux.
+  streetview: { providerKey: null, loaded: false, heading: 0, photoIndex: 0 },
+  googleStreetView: { configured: false, checked: false, message: '' },
   etabs: { loading: false, list: null, error: null, notice: null },
   map: null,
   aerial: null,
@@ -276,6 +280,9 @@ async function selectEtablissement(siret, options = {}) {
     apiUrl: `https://recherche-entreprises.api.gouv.fr/search?q=${row.etablissement.siret}`,
   };
   state.street = { loading: false, photos: [], sources: [], error: null };
+  // Nouvelle fiche : on referme toute vue immersive précédente (elle pointait
+  // sur un autre bâtiment) et on repart de la source préférée.
+  state.streetview = { providerKey: null, loaded: false, heading: config.streetView.heading, photoIndex: 0 };
   state.etabs = { loading: false, list: null, error: null, notice: null };
 
   ui.renderDetail(dom['detail-card'], state.fiche, detailHandlers());
@@ -380,10 +387,70 @@ async function showImagesTab() {
   ui.renderComplementaryPhotos(fiche.row.etablissement.siret, images.getComplementaryPhotos(fiche.row.etablissement.siret), detailHandlers());
   if (!fiche.position) {
     ui.renderStreetPhotos({ loading: false, photos: [], sources: [], radiusM: settings.get().streetRadiusM, error: 'Aucune coordonnée disponible : la recherche de photographies de rue est impossible.' }, detailHandlers());
+    renderStreetViewSection();
     return;
   }
   if (!state.street.photos.length && !state.street.error) await loadStreetPhotos();
-  else ui.renderStreetPhotos({ ...state.street, radiusM: settings.get().streetRadiusM }, detailHandlers());
+  else {
+    ui.renderStreetPhotos({ ...state.street, radiusM: settings.get().streetRadiusM }, detailHandlers());
+    renderStreetViewSection();
+  }
+}
+
+/**
+ * D. Vue immersive. Recalcule les sources disponibles puis rend la section.
+ * Aucun iframe n'est créé ici : seul un clic utilisateur déclenche le chargement.
+ */
+function renderStreetViewSection() {
+  const fiche = state.fiche;
+  if (!fiche) return;
+  const providers = streetview.availableProviders({
+    photos: state.street.photos,
+    position: fiche.position,
+    googleConfigured: state.googleStreetView.configured,
+  });
+
+  const view = state.streetview;
+  let selected = providers.find((provider) => provider.key === view.providerKey && provider.status === 'ready') || null;
+  if (!selected) {
+    const best = streetview.pickProvider(providers, settings.get().streetViewProvider || config.streetView.preferredProvider);
+    selected = best;
+    view.providerKey = best?.key || null;
+    view.photoIndex = 0;
+    view.loaded = false;
+  }
+  if (selected && view.photoIndex >= (selected.photos?.length || 0)) view.photoIndex = 0;
+
+  ui.renderStreetView({
+    providers,
+    selected,
+    loaded: view.loaded,
+    heading: view.heading,
+    photoIndex: view.photoIndex,
+    position: fiche.position,
+  }, detailHandlers());
+}
+
+/** URL du cadre, reconstruite à chaque rendu (orientation, photo choisie). */
+function streetViewUrl() {
+  const fiche = state.fiche;
+  const view = state.streetview;
+  if (!fiche || !view.providerKey) return null;
+  const providers = streetview.availableProviders({
+    photos: state.street.photos,
+    position: fiche.position,
+    googleConfigured: state.googleStreetView.configured,
+  });
+  const selected = providers.find((provider) => provider.key === view.providerKey);
+  if (!selected || selected.status !== 'ready') return null;
+  const photo = selected.photos?.[view.photoIndex] || selected.photo || null;
+  return streetview.embedUrlFor(view.providerKey, {
+    photo,
+    position: fiche.position,
+    heading: view.heading,
+    pitch: config.streetView.pitch,
+    fov: config.streetView.fov,
+  });
 }
 
 async function loadStreetPhotos() {
@@ -409,6 +476,7 @@ async function loadStreetPhotos() {
     state.street = { loading: false, photos: [], sources: [], error: toUserMessage(error) };
   }
   ui.renderStreetPhotos({ ...state.street, radiusM: current.streetRadiusM }, detailHandlers());
+  renderStreetViewSection();
 }
 
 /* ------------------------ Callbacks de la fiche --------------------- */
@@ -480,6 +548,31 @@ function detailHandlers() {
       loadStreetPhotos();
     },
     onReloadPhotos: () => loadStreetPhotos(),
+
+    /* D. Vue immersive — chargement strictement sur clic. */
+    resolveUrl: () => streetViewUrl(),
+    onSelectProvider: (key) => {
+      state.streetview.providerKey = key;
+      state.streetview.photoIndex = 0;
+      state.streetview.loaded = false; // changer de source ne charge rien tout seul
+      renderStreetViewSection();
+    },
+    onLoadEmbed: () => {
+      state.streetview.loaded = true;
+      renderStreetViewSection();
+    },
+    onCloseEmbed: () => {
+      state.streetview.loaded = false;
+      renderStreetViewSection();
+    },
+    onHeadingChange: (degrees) => {
+      state.streetview.heading = streetview.normalizeHeading(degrees);
+      renderStreetViewSection();
+    },
+    onPhotoChange: (index) => {
+      state.streetview.photoIndex = Math.max(0, index);
+      renderStreetViewSection();
+    },
     onOpenPhoto: (photo) => {
       const all = [...state.street.photos, ...images.getComplementaryPhotos(state.fiche.row.etablissement.siret)];
       const index = all.findIndex((item) => item.id === photo.id);
@@ -543,6 +636,7 @@ function openSettings() {
     settings: settings.get(),
     info: storageInfo(),
     mapillaryAccess: state.mapillaryAccess,
+    googleStreetView: state.googleStreetView,
     transport: { label: transportLabel(), ...proxyState() },
   }, {
     onSetting: (key, value) => {
@@ -875,6 +969,7 @@ async function boot() {
   // Le chemin réseau (proxy local ou appel direct) est décidé avant tout appel.
   await detectProxy();
   images.detectMapillaryAccess().then((access) => { state.mapillaryAccess = access; });
+  streetview.detectGoogleStreetView().then((google) => { state.googleStreetView = google; });
   checkServices();
 
   const match = window.location.hash.match(/^#\/etablissement\/(\d{14})$/);

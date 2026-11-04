@@ -16,6 +16,7 @@ import { nafLabel, nafWithLabel, departementLabel, regionLabel, natureJuridiqueL
 import { precisionLabel } from './geocoding.js';
 import { addressText } from './export.js';
 import { osmLink, ignTimeLink } from './map.js';
+import { frameAttributes, describeImmersion } from './streetview.js';
 
 /* ==================================================================== */
 /* 1. Notifications                                                      */
@@ -375,6 +376,16 @@ export function renderDetail(container, fiche, handlers) {
   images.append(complementary);
   detailRefs.complementaryHost = complementaryHost;
 
+  const immersive = el('div', { class: 'media-block' });
+  immersive.append(el('div', { class: 'media-head' }, [
+    el('h3', {}, [icon('expand'), 'D. Vue immersive — Street View 360°']),
+    el('span', { class: 'media-note', text: 'Chargée uniquement à votre demande.' }),
+  ]));
+  const streetviewHost = el('div', { id: 'streetview-host' });
+  immersive.append(streetviewHost);
+  images.append(immersive);
+  detailRefs.streetviewHost = streetviewHost;
+
   /* --- Panneau 3 : établissements ------------------------------------ */
   const etabPanel = panels.etablissements;
   etabPanel.append(el('div', { class: 'media-head' }, [
@@ -631,6 +642,163 @@ export function renderStreetPhotos({ loading, photos, sources, radiusM, error },
   });
 }
 
+/* ------------------------------------------------------------------ */
+/* D. Vue immersive « Street View » 360°                               */
+/* ------------------------------------------------------------------ */
+
+const COMPASS = [
+  { deg: 0, label: 'N' }, { deg: 90, label: 'E' }, { deg: 180, label: 'S' }, { deg: 270, label: 'O' },
+];
+
+/**
+ * Rend la section immersive. Aucun iframe n'est créé tant que `loaded` est
+ * faux : le fournisseur tiers ne reçoit alors aucune requête, ne dépose aucun
+ * cookie et n'ouvre aucun contexte de navigation.
+ */
+export function renderStreetView({ providers = [], selected = null, loaded = false, heading = 0, photoIndex = 0, position = null }, handlers) {
+  const host = detailRefs.streetviewHost;
+  if (!host) return;
+  clear(host);
+
+  /* --- Sélecteur de source ------------------------------------------ */
+  const chooser = el('div', { class: 'sv-chooser', role: 'group', 'aria-label': 'Source de la vue immersive' });
+  providers.forEach((provider) => {
+    const active = selected?.key === provider.key;
+    const ready = provider.status === 'ready';
+    chooser.append(el('button', {
+      type: 'button',
+      class: `sv-provider${active ? ' is-active' : ''}${ready ? '' : ' is-disabled'}`,
+      disabled: !ready,
+      title: ready ? provider.note : provider.reason,
+      'aria-pressed': active ? 'true' : 'false',
+      onclick: () => ready && handlers.onSelectProvider?.(provider.key),
+    }, [
+      el('strong', { text: provider.name }),
+      el('span', { class: 'sv-provider-note', text: ready ? (provider.needsKey ? 'clé configurée' : 'sans clé') : 'indisponible' }),
+    ]));
+  });
+  host.append(chooser);
+
+  if (!selected || selected.status !== 'ready') {
+    host.append(mediaEmpty({
+      iconName: 'expand',
+      title: 'Aucune vue immersive disponible pour ce point',
+      message: 'Aucune photographie sphérique n\'a été trouvée à proximité et Google Street View n\'est pas configuré. '
+        + 'Augmentez le rayon de recherche des photographies de rue, ou activez une source. Aucune vue de remplacement n\'est inventée.',
+    }));
+    const reasons = el('ul', { class: 'sv-reasons' });
+    providers.forEach((provider) => {
+      reasons.append(el('li', {}, [el('strong', { text: `${provider.name} — ` }), provider.reason]));
+    });
+    host.append(reasons);
+    return;
+  }
+
+  const photo = selected.photos?.[photoIndex] || selected.photo || null;
+  const immersion = selected.key === 'google' ? selected.immersion : describeImmersion(photo);
+  const supportsHeading = selected.key !== 'mapillary';
+
+  /* --- Cadre : affiche AVANT chargement, iframe APRÈS clic ----------- */
+  const stage = el('div', { class: 'sv-stage' });
+  stage.style.minHeight = `${config.streetView.frameHeight}px`;
+
+  if (!loaded) {
+    const poster = el('div', { class: 'sv-poster' });
+    if (photo?.thumbUrl) {
+      const image = el('img', { src: photo.thumbUrl, alt: '', loading: 'lazy', decoding: 'async', 'aria-hidden': 'true' });
+      image.addEventListener('error', () => image.remove());
+      poster.append(image);
+    }
+    poster.append(el('div', { class: 'sv-poster-veil' }));
+    poster.append(el('div', { class: 'sv-poster-action' }, [
+      el('button', {
+        type: 'button', class: 'btn btn-primary sv-launch',
+        onclick: () => handlers.onLoadEmbed?.(),
+      }, [icon('expand'), `Ouvrir la vue immersive — ${selected.shortName}`]),
+      el('p', {
+        class: 'sv-consent',
+        text: `Aucune requête n'est envoyée à ${selected.shortName} avant votre clic. `
+          + 'Le chargement ouvre un cadre externe qui peut déposer ses propres cookies.',
+      }),
+    ]));
+    stage.append(poster);
+  } else {
+    const url = handlers.resolveUrl?.() || selected.url;
+    if (!url) {
+      stage.append(mediaEmpty({ iconName: 'alert', title: 'Vue immersive indisponible', message: 'Impossible de construire l\'adresse du viewer pour cette source.' }));
+    } else {
+      const frame = el('iframe', {
+        ...frameAttributes(`Vue immersive ${selected.name} autour de l'adresse`),
+        class: 'sv-frame',
+        src: url,
+      });
+      frame.style.height = `${config.streetView.frameHeight}px`;
+      stage.append(frame);
+    }
+  }
+  host.append(stage);
+
+  /* --- Barre d'outils ------------------------------------------------ */
+  const toolbar = el('div', { class: 'sv-toolbar' });
+
+  if (loaded && supportsHeading) {
+    const turn = (delta) => handlers.onHeadingChange?.(heading + delta);
+    toolbar.append(el('button', { type: 'button', class: 'btn btn-sm btn-outline', title: 'Tourner vers la gauche', onclick: () => turn(-45) }, [icon('chevron-left'), '45°']));
+    toolbar.append(el('span', { class: 'sv-heading', text: `Cap ${Math.round(heading)}°` }));
+    toolbar.append(el('button', { type: 'button', class: 'btn btn-sm btn-outline', title: 'Tourner vers la droite', onclick: () => turn(45) }, ['45°', icon('chevron-right')]));
+    const compass = el('span', { class: 'sv-compass' });
+    COMPASS.forEach((point) => compass.append(el('button', {
+      type: 'button', class: 'btn btn-sm btn-ghost', title: `Regarder vers ${point.label}`,
+      onclick: () => handlers.onHeadingChange?.(point.deg),
+    }, point.label)));
+    toolbar.append(compass);
+  } else if (loaded) {
+    toolbar.append(el('span', { class: 'muted-xs', text: 'Orientation pilotée directement dans le viewer Mapillary.' }));
+  }
+
+  if (selected.photos?.length > 1) {
+    toolbar.append(el('span', { class: 'sv-count', text: `Photo ${photoIndex + 1}/${selected.photos.length}` }));
+    toolbar.append(el('button', {
+      type: 'button', class: 'btn btn-sm btn-outline', disabled: photoIndex <= 0,
+      title: 'Photographie précédente', onclick: () => handlers.onPhotoChange?.(photoIndex - 1),
+    }, [icon('chevron-left')]));
+    toolbar.append(el('button', {
+      type: 'button', class: 'btn btn-sm btn-outline', disabled: photoIndex >= selected.photos.length - 1,
+      title: 'Photographie suivante', onclick: () => handlers.onPhotoChange?.(photoIndex + 1),
+    }, [icon('chevron-right')]));
+  }
+
+  if (loaded) {
+    toolbar.append(el('button', { type: 'button', class: 'btn btn-sm btn-ghost', onclick: () => handlers.onCloseEmbed?.() }, [icon('close'), 'Fermer la vue']));
+  }
+  if (photo?.pageUrl) {
+    toolbar.append(el('a', {
+      class: 'btn btn-sm btn-ghost', href: safeUrl(photo.pageUrl), target: '_blank', rel: 'noopener noreferrer',
+    }, [icon('external'), `Ouvrir chez ${selected.shortName}`]));
+  } else if (selected.key === 'google' && position) {
+    toolbar.append(el('a', {
+      class: 'btn btn-sm btn-ghost',
+      href: `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${position.lat},${position.lon}`,
+      target: '_blank', rel: 'noopener noreferrer',
+    }, [icon('external'), 'Ouvrir dans Google Maps']));
+  }
+  if (toolbar.childNodes.length) host.append(toolbar);
+
+  /* --- Attribution et qualification honnête -------------------------- */
+  const caption = el('div', { class: 'sv-caption' });
+  caption.append(el('span', { class: `badge ${immersion.immersive ? 'badge-success' : 'badge-neutral'}`, text: immersion.label }));
+  if (photo) {
+    caption.append(el('span', { text: photo.capturedAt ? `Prise de vue : ${formatDateFr(photo.capturedAt)}` : 'Date de prise de vue inconnue' }));
+    caption.append(el('span', { text: `Auteur : ${truncate(photo.author || 'inconnu', 40)}` }));
+    if (photo.distanceM != null) caption.append(el('span', { text: `À ${photo.distanceM} m du point` }));
+  } else {
+    caption.append(el('span', { text: 'Panoramas Google — la date de prise de vue n\'est pas fournie par l\'API Embed.' }));
+  }
+  caption.append(el('span', { text: `Licence : ${truncate(photo?.licence || selected.licence, 60)}` }));
+  host.append(caption);
+  host.append(el('p', { class: 'muted-xs sv-detail', text: immersion.detail }));
+}
+
 export function renderComplementaryPhotos(siret, photos, handlers) {
   const host = detailRefs.complementaryHost;
   if (!host) return;
@@ -759,6 +927,12 @@ function renderSources(fiche) {
       'Panoramax — fédération IGN / OpenStreetMap France', 'https://panoramax.fr/', 'CC BY-SA 4.0 ou Licence Ouverte selon l\'instance'],
     ['Photographies de rue (jeton gratuit)',
       'Mapillary', 'https://www.mapillary.com/', 'CC BY-SA 4.0'],
+    ['Vue immersive 360° (sans clé)',
+      'Panoramax — viewer officiel intégré', 'https://docs.panoramax.fr/web-viewer/', 'CC BY-SA 4.0 ou Licence Ouverte selon la séquence'],
+    ['Vue immersive 360° (embed public)',
+      'Mapillary Embed', 'https://www.mapillary.com/developer/api-documentation', 'CC BY-SA 4.0'],
+    ['Vue immersive 360° (optionnelle, clé requise)',
+      'Google Street View — API Maps Embed', 'https://developers.google.com/maps/documentation/embed/get-started', 'Conditions Google Maps Platform — Embed gratuit et illimité'],
     ['Libellés NAF, départements, régions, catégories juridiques',
       'INSEE — nomenclatures publiques', 'https://www.insee.fr/', 'Licence Ouverte 2.0'],
   ];
@@ -813,7 +987,7 @@ function selectControl(options, value, onChange, label) {
   return select;
 }
 
-export function renderSettings(container, { settings: current, info, mapillaryAccess, transport }, handlers) {
+export function renderSettings(container, { settings: current, info, mapillaryAccess, transport, googleStreetView }, handlers) {
   clear(container);
 
   const networkOk = Boolean(transport?.available) && !transport?.relayFailed;
@@ -894,6 +1068,34 @@ export function renderSettings(container, { settings: current, info, mapillaryAc
     control: selectControl(config.imagery.streetRadiusOptions.map((value) => ({ value, label: `${value} m` })), current.streetRadiusM, (value) => handlers.onSetting('streetRadiusM', Number(value)), 'Rayon photos'),
   }));
   container.append(mapGroup);
+
+  const immersive = el('div', { class: 'setting-group' }, [el('h3', { text: 'Vue immersive — Street View 360°' })]);
+  immersive.append(settingRow({
+    name: 'Source immersive préférée',
+    description: 'Panoramax et Mapillary fonctionnent sans aucune clé. Google Street View nécessite une clé Google Cloud.',
+    control: selectControl([
+      { value: 'panoramax', label: 'Panoramax 360° (sans clé)' },
+      { value: 'mapillary', label: 'Mapillary 360° (sans clé)' },
+      { value: 'google', label: 'Google Street View (clé requise)' },
+    ], current.streetViewProvider, (value) => handlers.onSetting('streetViewProvider', value), 'Source immersive'),
+  }));
+  const googleReady = Boolean(googleStreetView?.configured);
+  immersive.append(el('div', { class: `notice notice-${googleReady ? 'info' : 'warning'}`, style: 'margin:0' }, [
+    icon(googleReady ? 'check' : 'info'),
+    el('span', {
+      text: googleReady
+        ? 'Google Street View est actif : la clé est chargée côté serveur et n\'apparaît jamais dans le JavaScript public.'
+        : 'Google Street View n\'est pas configuré. L\'API Maps Embed est gratuite et illimitée, mais Google exige un projet Cloud avec facturation activée. '
+          + 'Renseignez googleMapsEmbedKey dans server.config.json pour l\'activer. Sans cela, Panoramax fournit la vue immersive sans clé.',
+    }),
+  ]));
+  immersive.append(el('p', {
+    class: 'muted-xs',
+    style: 'margin-top:8px',
+    text: 'Confidentialité : aucun cadre externe n\'est chargé tant que vous n\'avez pas cliqué sur « Ouvrir la vue immersive ». '
+      + 'Le fournisseur ne reçoit donc aucune requête, et ne dépose aucun cookie, sans votre action.',
+  }));
+  container.append(immersive);
 
   const mapillary = el('div', { class: 'setting-group' }, [el('h3', { text: 'Mapillary (jeton gratuit)' })]);
   const mode = mapillaryAccess?.mode || 'none';

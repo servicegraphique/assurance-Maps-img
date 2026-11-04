@@ -102,6 +102,8 @@ const DEFAULTS = {
       baseUrl: 'https://api.panoramax.xyz/api',
       searchPath: '/search',
       viewerUrl: 'https://api.panoramax.xyz/',
+      /** Vue immersive officielle, intégrable en iframe, sans clé. */
+      embedUrl: 'https://api.panoramax.xyz/',
       minIntervalMs: 250,
       timeoutMs: 15000,
       retries: 1,
@@ -123,6 +125,8 @@ const DEFAULTS = {
       retries: 1,
       cacheTtlMs: 24 * 60 * 60 * 1000,
       viewerUrl: 'https://www.mapillary.com/app/',
+      /** Embed public : ne nécessite PAS de jeton (contrairement à l'API Graph). */
+      embedUrl: 'https://www.mapillary.com/embed',
       attribution:
         '<a href="https://www.mapillary.com/" target="_blank" rel="noopener noreferrer">Mapillary</a> — contributeurs (CC BY-SA)',
     },
@@ -149,6 +153,34 @@ const DEFAULTS = {
     /** 'both' | 'panoramax' | 'mapillary' */
     streetProviders: 'both',
     aerialZoom: 19,
+  },
+
+  /**
+   * Vue immersive « Street View » 360°.
+   * Deux sources fonctionnent sans aucune clé (Panoramax, Mapillary embed).
+   * Google Street View est optionnel et désactivé tant qu'aucune clé n'est
+   * configurée côté serveur : son API Embed est gratuite et illimitée, mais
+   * Google exige un projet Cloud avec facturation activée.
+   */
+  streetView: {
+    /** 'panoramax' | 'mapillary' | 'google' — source préférée si disponible. */
+    preferredProvider: 'panoramax',
+    /** Aucun iframe tiers n'est créé avant un clic explicite de l'utilisateur. */
+    clickToLoad: true,
+    /** Orientation initiale : cap en degrés (0 = nord), inclinaison, champ de vision. */
+    heading: 0,
+    pitch: 0,
+    fov: 90,
+    /** Rayon de recherche du panorama Google le plus proche, en mètres. */
+    googleRadiusM: 50,
+    /** Hauteur du cadre immersif en pixels (CSS). */
+    frameHeight: 460,
+    /** Route same-origin : le serveur ajoute la clé Google, jamais le JS public. */
+    googleEmbedPath: '/api/streetview/embed',
+    googleStatusPath: '/api/streetview/status',
+    /** Durcissement du cadre tiers. */
+    sandbox: 'allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms',
+    permissions: 'fullscreen; accelerometer; gyroscope; magnetometer',
   },
 
   map: {

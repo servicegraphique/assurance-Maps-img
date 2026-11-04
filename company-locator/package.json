@@ -7,9 +7,9 @@
   "license": "MIT",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test tests/unit/utils.test.mjs tests/unit/entreprise-api.test.mjs tests/unit/search.test.mjs tests/unit/geocoding.test.mjs tests/unit/export-storage.test.mjs tests/unit/images.test.mjs tests/unit/transport.test.mjs",
+    "test": "node --test tests/unit/utils.test.mjs tests/unit/entreprise-api.test.mjs tests/unit/search.test.mjs tests/unit/geocoding.test.mjs tests/unit/export-storage.test.mjs tests/unit/images.test.mjs tests/unit/transport.test.mjs tests/unit/streetview.test.mjs",
     "test:dom": "node tests/dom.test.mjs",
-    "test:all": "node --test tests/unit/utils.test.mjs tests/unit/entreprise-api.test.mjs tests/unit/search.test.mjs tests/unit/geocoding.test.mjs tests/unit/export-storage.test.mjs tests/unit/images.test.mjs tests/unit/transport.test.mjs && node tests/css.test.mjs && node tests/boot.test.mjs && node tests/dom.test.mjs",
+    "test:all": "node --test tests/unit/utils.test.mjs tests/unit/entreprise-api.test.mjs tests/unit/search.test.mjs tests/unit/geocoding.test.mjs tests/unit/export-storage.test.mjs tests/unit/images.test.mjs tests/unit/transport.test.mjs tests/unit/streetview.test.mjs && node tests/css.test.mjs && node tests/boot.test.mjs && node tests/dom.test.mjs",
     "test:live": "node tests/live-smoke.mjs",
     "test:css": "node tests/css.test.mjs",
     "start:open": "node server.js --open",
