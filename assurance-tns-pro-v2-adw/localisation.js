@@ -28,6 +28,10 @@
     storageKey: 'cpro_loc_entreprise_v1',
     clearStoredOnSubmit: true,
     requireValidation: true,
+    /* Reprend l'adresse saisie dans l'étape « société » (champs adresse,
+       code_postal, ville) pour préremplir — et lancer — la recherche. */
+    prefillFromCompany: true,
+    autoSearchFromCompany: true,
     mapZoom: 16,
     aerialZoom: 19,
     photoRadiusMeters: 90,
@@ -247,6 +251,107 @@
     return field ? trim(field.value) : '';
   }
 
+  /* Adresse saisie dans l'étape « société » (nom + rue, code postal, ville). */
+  function companyQuery() {
+    return {
+      company: mainFieldValue('societe'),
+      housenumber: '',
+      street: mainFieldValue('adresse'),
+      postcode: mainFieldValue('code_postal'),
+      city: mainFieldValue('ville'),
+      countryCode: CFG.defaultCountry
+    };
+  }
+
+  function isCompanyAddressComplete(query) {
+    return !!trim(query.street) && Core.validateSearchFields(query).ok;
+  }
+
+  /* Complète les requêtes des deux blocs avec l'adresse de société, sans
+     écraser une adresse déjà trouvée ni une saisie manuelle. */
+  function applyQueryPrefill(query) {
+    var changed = false;
+    BLOCKS.forEach(function (name) {
+      var block = STATE[name];
+      if (block.address) return;
+      ['company', 'street', 'postcode', 'city'].forEach(function (key) {
+        if (!trim(block.query[key]) && trim(query[key])) {
+          block.query[key] = query[key];
+          changed = true;
+        }
+      });
+      if (!block.query.countryCode) {
+        block.query.countryCode = query.countryCode;
+        changed = true;
+      }
+    });
+    if (changed) persist();
+    return changed;
+  }
+
+  var lastPrefillSignature = '';
+
+  /* Recherche automatique à partir des informations de société : l'utilisateur
+     n'a pas à ressaisir son adresse dans la modale. */
+  function autoSearchFromCompany(query) {
+    var signature = [query.street, query.postcode, query.city]
+      .map(function (value) { return Core.normalizeKey(value); }).join('|');
+    lastPrefillSignature = signature;
+    setStatus('localisation', 'Recherche de l’adresse renseignée à l’étape société…', 'loading');
+
+    var plan = Core.buildGeocodePlan(query, {
+      geopfUrl: CFG.urls.geopf,
+      photonUrl: CFG.urls.photon,
+      banLimit: 8,
+      photonLimit: 10
+    });
+
+    return firstSuccessful(plan, function (step, payload) {
+      var results = step.provider === 'ban'
+        ? Core.parseGeopf(payload)
+        : Core.parsePhoton(payload, query.countryCode);
+      return step.provider === 'photon' ? results.slice(0, CFG.maxResults) : results;
+    }).then(function (outcome) {
+      var best = (outcome.results || [])[0];
+      if (!best) {
+        setStatus('localisation', 'Adresse non retrouvée automatiquement. Cliquez sur « Rechercher » pour la préciser.', 'error');
+        emit('prefill:empty', { query: query });
+        return null;
+      }
+      applyResult('localisation', best, query);
+      applyResult('batiment', best, query);
+      setStatus('localisation', 'Adresse reprise des informations de société. Vérifiez le repère, ajustez-le si besoin, puis cliquez sur « Valider ».', 'ok');
+      emit('prefill:applied', { adresse: best.label });
+      return best;
+    }).catch(function (error) {
+      setStatus('localisation', 'La recherche automatique a échoué. Renseignez l’adresse avec « Rechercher ».', 'error');
+      log('Préremplissage en échec', error && error.message);
+      emit('prefill:error', { message: error && error.message });
+      return null;
+    });
+  }
+
+  /* Appelé lorsque l'étape devient visible (et par l'API publique). */
+  function maybeAutoFill(force) {
+    if (!CFG.prefillFromCompany) return Promise.resolve(null);
+    var query = companyQuery();
+    applyQueryPrefill(query);
+    if (!CFG.autoSearchFromCompany && !force) return Promise.resolve(null);
+    if (!isCompanyAddressComplete(query)) {
+      if (force) setStatus('localisation', 'Complétez l’adresse à l’étape société, ou lancez une recherche avec le bouton « Rechercher ».', '');
+      return Promise.resolve(null);
+    }
+    var signature = [query.street, query.postcode, query.city]
+      .map(function (value) { return Core.normalizeKey(value); }).join('|');
+    if (!force && signature === lastPrefillSignature) return Promise.resolve(null);
+    /* Ne jamais écraser une adresse déjà obtenue ni une validation. */
+    if (STATE.localisation.address || STATE.localisation.validated) {
+      if (!force) return Promise.resolve(null);
+      if (STATE.localisation.validated) return Promise.resolve(null);
+    }
+    return autoSearchFromCompany(query);
+  }
+
   /* ================================================================== *
    * Champs cachés transmis avec le lead
    * ================================================================== */
@@ -309,7 +414,7 @@
       } else {
         ui.meta.textContent = name === 'localisation'
           ? 'Cliquez sur « Rechercher » ou directement sur la carte.'
-          : 'Cliquez sur « Rechercher » pour identifier le bâtiment.';
+          : 'Renseignez l’adresse : le bâtiment s’affiche en vue aérienne.';
       }
     }
     if (ui.badge) {
@@ -354,14 +459,14 @@
       }
     }
     if (ui.placeholder) {
-      var showPlaceholder = mode === 'facade' && !hasPhoto;
+      var showPlaceholder = !hasAddress || (mode === 'facade' && !hasPhoto);
       ui.placeholder.hidden = !showPlaceholder;
       if (showPlaceholder) {
         var text = ui.placeholder.querySelector('[data-loc-photo-empty-text]');
         if (text) {
           text.textContent = hasAddress
-            ? 'Aucune photographie de façade disponible dans les sources ouvertes pour cette adresse.'
-            : 'Lancez une recherche d’adresse pour afficher le bâtiment.';
+            ? 'Aucune photographie extérieure disponible dans les sources ouvertes pour cette adresse.'
+            : 'Renseignez l’adresse pour afficher le bâtiment et sa photo extérieure.';
         }
         var aerialBtn = ui.placeholder.querySelector('[data-loc-view-aerial]');
         if (aerialBtn) aerialBtn.hidden = !hasAddress;
@@ -660,7 +765,7 @@
       if (name === 'batiment') {
         block.photo = null;
         block.photos = [];
-        block.mode = 'facade';
+        block.mode = 'aerienne';
       }
       renderBlock(name);
       refreshMap(name);
@@ -723,12 +828,13 @@
       block.photos = photos;
       if (photos.length) {
         block.photo = photos[0];
-        block.mode = 'facade';
-        setStatus('batiment', 'Photographie du bâtiment trouvée (' + (photos[0].providerLabel || 'source ouverte') + '). Vérifiez qu’il s’agit bien de vos locaux puis validez.', 'ok');
+        setStatus('batiment', block.mode === 'facade'
+          ? 'Photographie extérieure trouvée (' + (photos[0].providerLabel || 'source ouverte') + '). Vérifiez qu’il s’agit bien de vos locaux puis validez.'
+          : 'Vue aérienne du bâtiment affichée · ' + photos.length + (photos.length > 1 ? ' photos extérieures disponibles' : ' photo extérieure disponible') + ' dans l’onglet « Photo extérieure ».', 'ok');
       } else {
         block.photo = null;
         block.mode = 'aerienne';
-        setStatus('batiment', 'Aucune photographie de façade disponible pour cette adresse : la vue aérienne est affichée. Vous pouvez valider en l’état.', '');
+        setStatus('batiment', 'Vue aérienne du bâtiment affichée. Aucune photographie extérieure n’est disponible pour cette adresse : vous pouvez valider en l’état.', '');
       }
       if (UI.blocks.batiment.loading) UI.blocks.batiment.loading.hidden = true;
       renderBlock('batiment');
@@ -959,20 +1065,24 @@
     var block = STATE[name];
     var query = block.query || {};
     var company = trim(query.company) || mainFieldValue('societe');
-    var postcode = trim(query.postcode);
-    var city = trim(query.city);
+    var postcode = trim(query.postcode) || mainFieldValue('code_postal');
+    var city = trim(query.city) || mainFieldValue('ville');
+    var street = Core.streetLine(query) || trim(query.street) || mainFieldValue('adresse');
 
     if (!trim(query.street) && name === 'batiment' && STATE.localisation.address) {
       query = queryFromAddress(STATE.localisation.address, query);
+      street = Core.streetLine(query) || street;
+      postcode = trim(query.postcode) || postcode;
+      city = trim(query.city) || city;
     }
-    if (!postcode) postcode = mainFieldValue('code_postal');
     if (!trim(query.company)) query.company = company;
     if (!trim(query.postcode)) query.postcode = postcode;
     if (!trim(query.city)) query.city = city;
+    if (!trim(query.street)) query.street = street;
     if (!query.countryCode) query.countryCode = CFG.defaultCountry;
 
     setFieldValue(modalUi, 'company', trim(query.company));
-    setFieldValue(modalUi, 'street', Core.streetLine(query) || trim(query.street));
+    setFieldValue(modalUi, 'street', Core.streetLine(query) || trim(query.street) || street);
     setFieldValue(modalUi, 'postcode', trim(query.postcode));
     setFieldValue(modalUi, 'city', trim(query.city));
     setFieldValue(modalUi, 'countryCode', query.countryCode);
@@ -1211,7 +1321,7 @@
     if (name === 'batiment') {
       block.photo = null;
       block.photos = [];
-      block.mode = 'facade';
+      block.mode = 'aerienne';
     }
     renderBlock(name);
     refreshMap(name);
@@ -1220,7 +1330,7 @@
     closeModal(name);
     if (name === 'batiment') {
       ensureAerialMap();
-      setStatus('batiment', 'Adresse du bâtiment enregistrée. Recherche de la photographie…', 'loading');
+      setStatus('batiment', 'Adresse du bâtiment enregistrée. Recherche de la photographie extérieure…', 'loading');
       loadBuildingPhotos();
     } else {
       setStatus('localisation', 'Adresse trouvée. Vérifiez le repère (déplaçable), puis cliquez sur « Valider ».', 'ok');
@@ -1291,6 +1401,10 @@
    * ================================================================== */
   function syncVisibility(force) {
     var visible = isStepVisible();
+    if (visible) {
+      /* Reprend l'adresse de l'étape « société » dès l'affichage de l'étape. */
+      maybeAutoFill(false);
+    }
     if (!force && visible === lastVisible) {
       if (visible) {
         if (MAPS.localisation) window.setTimeout(function () { MAPS.localisation.map.invalidateSize(); }, 60);
@@ -1390,7 +1504,7 @@
     if (block.validated) {
       setStatus('batiment', mode === 'aerienne'
         ? 'Vue aérienne enregistrée pour votre bâtiment.'
-        : 'Photographie de façade enregistrée pour votre bâtiment.', 'ok');
+        : 'Photo extérieure enregistrée pour votre bâtiment.', 'ok');
     }
     emit('change', { bloc: 'batiment', mode: mode });
   }
@@ -1499,6 +1613,7 @@
       getRecap: function () { return Core.toRecap(STATE); },
       isValidated: function () { return Core.isStateValidated(STATE); },
       isRequired: function () { return CFG.requireValidation; },
+      prefill: function () { return maybeAutoFill(true); },
       getConfig: function () { return JSON.parse(JSON.stringify(CFG)); },
       getTileProviders: function () { return streetTileProviders(); },
       open: function (name) { openModal(name === 'batiment' ? 'batiment' : 'localisation'); },

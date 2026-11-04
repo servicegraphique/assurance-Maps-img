@@ -545,7 +545,9 @@
       address: null,
       photo: null,
       photos: [],
-      mode: 'facade',
+      /* La vue aérienne est affichée par défaut : elle montre toujours le
+         bâtiment, même quand aucune photographie extérieure n'existe. */
+      mode: 'aerienne',
       validated: false,
       updatedAt: ''
     };
@@ -610,7 +612,7 @@
     });
     base.address = sanitizeAddress(block.address);
     base.photo = sanitizePhoto(block.photo);
-    base.mode = block.mode === 'aerienne' ? 'aerienne' : 'facade';
+    base.mode = block.mode === 'facade' ? 'facade' : 'aerienne';
     base.validated = block.validated === true && !!base.address;
     base.updatedAt = String(block.updatedAt || '');
     return base;

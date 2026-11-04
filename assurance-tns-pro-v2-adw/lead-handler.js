@@ -538,6 +538,7 @@ var UBE_CONFIG = {
       societe: textValue('societe'),
       code_postal: textValue('code_postal').replace(/\s+/g, '')
     };
+    if (champExiste('adresse')) data.adresse = textValue('adresse');
     if (champExiste('ville')) data.ville = textValue('ville');
     if (champExiste('civilite')) data.civilite = radioValue('civilite') || textValue('civilite');
     if (champExiste('siret')) data.siret = textValue('siret');

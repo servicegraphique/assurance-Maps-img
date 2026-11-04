@@ -16,7 +16,7 @@
 
 | Élément | Comportement |
 | --- | --- |
-| Carte interactive | OpenStreetMap (Leaflet embarqué), marqueur déplaçable, clic sur la carte pour repositionner |
+| Carte interactive | Leaflet embarqué (fond Esri World Street Map, repli OpenStreetMap France), marqueur déplaçable, clic sur la carte pour repositionner |
 | Adresse + GPS | Libellé de l'adresse, latitude/longitude à 6 décimales, précision et source |
 | `Rechercher` | Ouvre la modale de recherche (entreprise, rue, code postal, ville, pays) |
 | `Valider` | Enregistre le bloc, l'écrit dans les champs du formulaire et le stocke localement |
@@ -25,14 +25,15 @@
 
 | Élément | Comportement |
 | --- | --- |
-| Photographie réelle | Photo de rue issue de **Panoramax** (imagerie ouverte, France/Europe), sinon **Wikimedia Commons** géolocalisé |
-| Vue aérienne | Onglet « Vue aérienne » : carte Esri World Imagery zoom 19 centrée sur le bâtiment |
+| **Vue aérienne (par défaut)** | Carte Esri World Imagery zoom 19 centrée sur le bâtiment : c'est l'image affichée d'emblée, elle montre toujours les locaux |
+| Photo extérieure | Onglet « Photo extérieure » : photo de rue **Panoramax** (imagerie ouverte, France/Europe), sinon **Wikimedia Commons** géolocalisé |
 | Adresse + GPS | Même principe que le bloc 1, avec sa propre recherche indépendante |
-| `Rechercher` / `Valider` | Modale indépendante ; validation enregistre la vue choisie (façade ou aérienne) |
+| `Rechercher` / `Valider` | Modale indépendante ; validation enregistre la vue choisie (aérienne ou photo extérieure) |
 
-Si aucune photo de façade n'existe dans les sources ouvertes, le module bascule
-automatiquement sur la vue aérienne : **le bloc reste validable** et l'URL de la
-vue aérienne (Esri) est transmise avec le lead.
+L'image du bloc est donc une **vue aérienne ou extérieure réelle du bâtiment**
+(jamais une illustration). Quand une photo extérieure existe, elle est proposée
+dans l'onglet dédié et signalée dans le message de statut ; sinon la vue
+aérienne reste affichée et **le bloc est validable en l'état**.
 
 ### Modales
 
@@ -48,6 +49,34 @@ Chaque bloc possède sa propre fenêtre modale (`#loc-modal-localisation`,
 `Lancer la recherche` interroge le géocodeur, affiche les adresses trouvées avec
 leur précision (numéro de rue / rue / commune) et leurs coordonnées ; `Utiliser
 cette adresse` remplit la carte et les informations du bloc.
+
+Les champs de la modale sont **déjà remplis** avec l'adresse saisie à l'étape
+précédente (voir ci-dessous) : l'utilisateur ne ressaisit jamais son adresse.
+
+### Adresse saisie à l'étape « société »
+
+L'étape « Quelle est la société concernée par cette demande ? » demande
+désormais, en plus du nom et du code postal :
+
+| Champ | `name` | Obligatoire |
+| --- | --- | --- |
+| Numéro et nom de rue | `adresse` | non |
+| Code postal | `code_postal` | oui (déjà) |
+| Ville | `ville` | non |
+
+Dès que l'étape de localisation s'affiche, le module :
+
+1. recopie ces valeurs dans les deux modales (`company`, `street`, `postcode`,
+   `city`) ;
+2. si la rue, le code postal et la ville sont renseignés, lance **une seule
+   recherche automatique** et remplit les deux blocs (adresse, GPS, bâtiment en
+   vue aérienne, photo extérieure si disponible) ;
+3. laisse l'utilisateur ajuster le repère puis cliquer sur `Valider`.
+
+Si l'adresse est incomplète ou introuvable, aucune erreur bloquante : un message
+invite à cliquer sur `Rechercher`. La recherche automatique ne s'exécute qu'une
+fois par adresse et **n'écrase jamais** une adresse déjà validée. Le champ
+`adresse` est aussi transmis dans le lead (voir section 4).
 
 ---
 
@@ -78,11 +107,14 @@ Les attributions légales sont affichées dans la carte (Leaflet) et sous la pho
 | `vendor/leaflet/` | Leaflet 1.9.4 embarqué (BSD-2-Clause, `LICENSE` fourni) — aucun CDN requis |
 | `index.html` | Étape ajoutée + chaînage `code-postal → localisation → societe`, liens CSS et scripts |
 | `lead-handler.js` | Fusion des champs `loc_*` dans le lead et ajout du récapitulatif |
-| `tests/` | 39 tests (`node --test`), dont 12 tests DOM jsdom avec réseau simulé |
+| `tests/` | 44 tests (`node --test`), dont 16 tests DOM jsdom avec réseau simulé |
 
 ---
 
 ## 4. Champs transmis avec le lead
+
+Le nom de rue saisi à l'étape société est transmis sous `adresse` (et `ville`),
+en plus des champs géocodés :
 
 Ajoutés à l'objet `data` envoyé au CRM et à Google Sheets (préfixe `loc_`) :
 `loc_adresse`, `loc_rue`, `loc_code_postal`, `loc_ville`, `loc_pays`,
@@ -151,6 +183,8 @@ Surchargez `window.LOCALISATION_CONFIG` **avant** le chargement de
 window.LOCALISATION_CONFIG = {
   defaultCountry: 'FR',
   requireValidation: true,
+  prefillFromCompany: true,            // reprend l'adresse de l'étape « société »
+  autoSearchFromCompany: true,         // lance la recherche dès l'affichage de l'étape
   persist: true,                       // sauvegarde locale de secours
   storageKey: 'cpro_loc_entreprise_v1',
   clearStoredOnSubmit: true,           // purge le stockage 15 s après l'envoi
@@ -263,13 +297,15 @@ npm ci --prefix tests
 npm test --prefix tests
 ```
 
-- `tests/localisation-core.test.js` — 27 tests : composition des requêtes,
+- `tests/localisation-core.test.js` — 28 tests : composition des requêtes,
   analyse BAN/Photon/Panoramax/Commons, validité des codes postaux européens,
-  géocodage inverse, sérialisation, champs de lead, branchement HTML.
-- `tests/localisation-ui.test.js` — 10 tests jsdom (réseau simulé) : ouverture
+  géocodage inverse, sérialisation, champs de lead, vue aérienne par défaut,
+  branchement HTML.
+- `tests/localisation-ui.test.js` — 16 tests jsdom (réseau simulé) : ouverture
   des modales, blocage des saisies invalides, sélection d'adresse, validation,
-  garde du bouton Suivant, chargement de photo, repli aérien, stockage local,
-  gestion des pannes réseau.
+  garde du bouton Suivant, vue aérienne par défaut + photo extérieure, stockage
+  local, gestion des pannes réseau, préremplissage depuis l'étape « société »,
+  déclenchement automatique à l'affichage de l'étape.
 
 Aucun test ne contacte Internet : les réponses des fournisseurs sont simulées.
 
@@ -277,15 +313,17 @@ Aucun test ne contacte Internet : les réponses des fournisseurs sont simulées.
 
 ## 11. Checklist QA avant publication
 
-1. Parcours complet : société (nom + CP) → **localisation** → société existante
+1. Parcours complet : société (nom + rue + CP + ville) → **localisation**
+   (adresse reprise automatiquement) → société existante
    → … → envoi ; vérifier que le bouton `Précédent` revient correctement sur
    l'étape.
 2. Adresse française en ville, en rural, et une adresse en Belgique, en
    Espagne, au Royaume-Uni (pays + code postal).
 3. Déplacer le marqueur : l'adresse se met à jour et la validation redevient
    nécessaire.
-4. Vérifier une photo Panoramax (crédit + licence cliquables) et le repli
-   « vue aérienne ».
+4. Vérifier que la **vue aérienne** s'affiche par défaut, qu'une photo
+   Panoramax est proposée dans l'onglet « Photo extérieure » (crédit + licence
+   cliquables) et que le bloc reste validable sans photo.
 5. `Suivant` bloqué sans validation, message lisible, échappatoire fonctionnelle.
 6. Réception du lead en CRM et dans Google Sheets : champs `loc_*` +
    récapitulatif. Tester `lpLead.preview()` en console.

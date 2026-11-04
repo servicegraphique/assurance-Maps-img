@@ -323,7 +323,16 @@ test('toLeadFields laisse vides les champs non renseignés', () => {
   assert.equal(fields.loc_adresse, '');
   assert.equal(fields.loc_latitude, '');
   assert.equal(fields.loc_batiment_validee, 'non');
+  assert.equal(fields.loc_batiment_vue, 'vue aerienne');
   assert.equal(Core.isStateValidated(Core.createState()), false);
+});
+
+test('la vue aérienne est le mode d’affichage par défaut du bâtiment', () => {
+  const state = Core.createState();
+  assert.equal(state.batiment.mode, 'aerienne');
+  assert.equal(Core.sanitizeState({}).batiment.mode, 'aerienne');
+  const facade = Core.sanitizeState({ batiment: { mode: 'facade' } });
+  assert.equal(facade.batiment.mode, 'facade');
 });
 
 test('sanitizeState écarte les coordonnées invalides', () => {
