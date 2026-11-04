@@ -86,7 +86,7 @@ function makeFetch(routes) {
   };
 }
 
-async function createPage(routes) {
+async function createPage(routes, config) {
   const dom = new JSDOM(HTML, {
     url: 'https://lp.test/',
     runScripts: 'outside-only',
@@ -94,6 +94,7 @@ async function createPage(routes) {
   });
   const { window } = dom;
   window.fetch = makeFetch(routes || {});
+  if (config) window.LOCALISATION_CONFIG = config;
   window.eval(CORE);
   window.eval(UI);
   if (!window.LocalisationEntreprise) {
@@ -346,4 +347,34 @@ test('les fournisseurs indisponibles produisent un message d’erreur explicite'
   assert.equal(modal.querySelector('[data-loc-error]').hidden, false);
   assert.match(modal.querySelector('[data-loc-error]').textContent, /momentanément indisponible/);
   assert.equal(modal.querySelector('[data-loc-submit]').disabled, false);
+});
+
+test('le fond de carte par défaut évite le serveur de tuiles OSM bloquant', async () => {
+  const { window } = await createPage();
+  const config = window.LocalisationEntreprise.getConfig();
+  assert.match(config.tiles.street, /World_Street_Map/);
+  assert.doesNotMatch(config.tiles.street, /tile\.openstreetmap\.org/);
+  assert.match(config.tiles.streetFallback, /tile\.openstreetmap\.fr/);
+
+  const providers = window.LocalisationEntreprise.getTileProviders();
+  assert.equal(providers.length, 2);
+  assert.equal(providers[0].url, config.tiles.street);
+  assert.match(providers[0].attribution, /Esri/);
+  assert.match(providers[1].attribution, /OpenStreetMap/);
+});
+
+test('un fournisseur de tuiles sous contrat peut remplacer le fond par défaut', async () => {
+  const { window } = await createPage({}, {
+    tiles: {
+      street: 'https://tuiles.exemple.test/{z}/{x}/{y}.png',
+      streetAttribution: 'Tuiles Exemple',
+      streetFallback: ''
+    }
+  });
+  const config = window.LocalisationEntreprise.getConfig();
+  assert.equal(config.tiles.street, 'https://tuiles.exemple.test/{z}/{x}/{y}.png');
+  const providers = window.LocalisationEntreprise.getTileProviders();
+  assert.equal(providers.length, 1);
+  assert.equal(providers[0].url, 'https://tuiles.exemple.test/{z}/{x}/{y}.png');
+  assert.equal(providers[0].attribution, 'Tuiles Exemple');
 });

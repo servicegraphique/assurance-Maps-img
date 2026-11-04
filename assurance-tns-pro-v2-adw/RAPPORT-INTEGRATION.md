@@ -18,8 +18,8 @@ Une étape a été insérée dans le parcours, entre « Quelle est la société 
 - Champs `loc_*` ajoutés au payload CRM et au Google Sheet, plus un récapitulatif dans `autre_info_fj`. Le script Apps Script doit exposer les nouvelles colonnes s'il filtre les paramètres.
 - La validation est obligatoire par défaut ; un lien de poursuite évite de bloquer un lead lorsque les sources ouvertes ne couvrent pas l'adresse (`requireValidation: false` pour désactiver).
 - Données conservées en `localStorage` (`cpro_loc_entreprise_v1`) uniquement pour ne pas perdre la saisie, purgées 15 s après l'envoi.
-- Hôtes externes supplémentaires appelés par la page : `data.geopf.fr`, `photon.komoot.io`, `api.panoramax.xyz`, `commons.wikimedia.org`, `*.tile.openstreetmap.org`, `server.arcgisonline.com`. À déclarer dans la CSP et à vérifier côté DPO.
-- Tuiles OpenStreetMap : remplacer `tiles.street` par un fournisseur de production avant tout trafic significatif (politique d'usage OSM).
-- Tests : 37 cas (`npm ci --prefix tests && npm test --prefix tests`), dont 10 tests DOM jsdom à réseau simulé. Le parcours réel (navigation entre étapes, géocodage, photos, CRM) reste à valider manuellement.
+- Hôtes externes supplémentaires appelés par la page : `data.geopf.fr`, `photon.komoot.io`, `api.panoramax.xyz`, `commons.wikimedia.org`, `server.arcgisonline.com`, `tile.openstreetmap.fr` (repli). À déclarer dans la CSP et à vérifier côté DPO.
+- Fond de carte : Esri World Street Map par défaut (le serveur `tile.openstreetmap.org` renvoyait des tuiles 403 « Access blocked »), repli automatique sur OpenStreetMap France puis message « Fond de carte indisponible ». Pour un trafic important, configurer `tiles.street` avec un fournisseur sous contrat.
+- Tests : 39 cas (`npm ci --prefix tests && npm test --prefix tests`), dont 12 tests DOM jsdom à réseau simulé. Le parcours réel (navigation entre étapes, géocodage, photos, CRM) reste à valider manuellement.
 
 Tests : `npm ci --prefix tests && npm test --prefix tests`. Ils simulent les réponses réseau ; vérifier également les parcours complets, tous les champs et la réception réelle avant publication. Un résultat local n'est pas une preuve de réception côté CRM, Sheets ou SMS.
