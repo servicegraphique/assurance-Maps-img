@@ -26,7 +26,34 @@ Ce document distingue honnêtement **ce qui a été exécuté et vérifié** de 
 | `tests/unit/images.test.mjs` | Détection du mode Mapillary (proxy / direct / aucun), Panoramax `place_position` + repli `bbox`, filtrage par rayon, tri par distance, dédoublonnage, normalisation des dates/licences, statut par fournisseur, photos complémentaires (source obligatoire) |
 | `tests/unit/transport.test.mjs` | Correspondance URL publique ↔ relais local pour les trois services, **refus des origines non déclarées**, comportement hors navigateur, propagation des erreurs HTTP métier |
 
-### 1.2 Intégration DOM — `npm run test:dom`
+### 1.2 Cascade CSS — `npm run test:css`
+
+```
+16/16 vérifications CSS réussies.
+```
+
+Ce suite rejoue la **cascade réelle** de la propriété `display` (origine auteur
+`!important` > auteur normale > navigateur, puis spécificité, puis ordre), parce que
+jsdom n'applique pas `!important` et laisserait passer la régression. Elle vérifie
+qu'**aucun élément porteur de `hidden` ne reste visible**, que retirer `hidden`
+réaffiche bien les modales, et que les règles d'impression restent correctes.
+
+**Test par mutation effectué** : en retirant la règle `[hidden] { display: none !important; }`,
+7 vérifications échouent (9/16). La suite détecte donc bien le défaut d'origine.
+
+### 1.3 Garde de démarrage — `npm run test:boot`
+
+```
+14/14 vérifications de démarrage réussies.
+```
+
+Reproduit le cas réel `file:///C:/Users/…/company-locator/index.html` : bandeau
+d'aide affiché, cause expliquée, lanceur proposé, commande `cd` exacte déduite de
+l'URL, adresse `http://localhost:8080/` indiquée. Vérifie aussi le chien de garde
+(module jamais exécuté, démarrage réussi, erreur déjà affichée non écrasée) et le
+cas du navigateur sans support des modules.
+
+### 1.4 Intégration DOM — `npm run test:dom`
 
 ```
 42/42 vérifications réussies.
@@ -59,7 +86,7 @@ Parcours couvert :
 20. **0 appel à un service payant ou non déclaré.**
 21. **0 jeton secret** dans les requêtes émises par le navigateur.
 
-### 1.3 Serveur local — vérifications HTTP réelles
+### 1.5 Serveur local — vérifications HTTP réelles
 
 Exécutées contre `node server.js` en fonctionnement :
 
@@ -77,6 +104,8 @@ Exécutées contre `node server.js` en fonctionnement :
 | Traversée de répertoire (`/%2e%2e/…`) | bloquée |
 | Répertoire sans index | HTTP 404, **aucun listing** |
 | Relais public injoignable | HTTP 502 avec message de diagnostic en français |
+| Port 8080 déjà occupé | Bascule automatique sur 8081, vérifiée par une seconde instance (`/api/health` → 200 sur 8081) |
+| `js/boot.js` servi | HTTP 200, `text/javascript` |
 
 ---
 
@@ -162,8 +191,52 @@ Configurer `server.config.json`, relancer, puis `node tests/live-smoke.mjs` : la
 | Domaine | Statut |
 |---|---|
 | Logique métier (recherche, normalisation, GPS, exports, stockage, images) | ✅ **101 tests unitaires exécutés et verts** |
+| Cascade CSS et éléments masqués | ✅ **16 vérifications exécutées et vertes** (test par mutation validé) |
+| Garde de démarrage (`file://`, chien de garde) | ✅ **14 vérifications exécutées et vertes** |
 | Interface et parcours complet | ✅ **42 vérifications DOM exécutées et vertes**, 0 erreur JS |
 | Serveur local, ressources, sécurité | ✅ **vérifié par requêtes HTTP réelles** |
 | Contrats des API (URL, paramètres, champs, quotas, licences) | ✅ **vérifiés sur les sources officielles** |
 | Appels réseau réels aux API publiques | ⏳ **à exécuter sur votre poste** — `node tests/live-smoke.mjs` |
 | Rendu visuel navigateur réel | ⏳ **à confirmer visuellement** — recette en 15 points ci-dessus |
+
+
+---
+
+## 6. Anomalie remontée après livraison, et correctif
+
+### Symptôme signalé
+
+Page sombre au chargement, modale « Historique & fiches enregistrées » visible
+spontanément, trois boutons gris flottant au centre, interface inerte. Adresse
+relevée dans la barre du navigateur : `C:/Users/…/Desktop/company-locator/index.html`.
+
+### Deux causes distinctes
+
+**1. Bug CSS réel, présent dans tous les environnements.**
+`.modal { display: flex }` et `.lightbox { display: flex }` sont des déclarations
+d'**origine auteur** : elles battent le `[hidden] { display: none }` de la feuille de
+style du **navigateur**, quelle que soit la spécificité. Les deux modales et la
+lightbox étaient donc affichées en permanence — le voile sombre était le fond de
+la lightbox (`z-index: 1400`) et les trois carrés gris ses boutons de navigation.
+Le JavaScript basculait correctement `element.hidden`, mais sans effet visuel.
+
+*Correctif* : règle globale `[hidden] { display: none !important; }` dans `css/style.css`.
+La règle d'impression `.tab-panel[hidden] { display: block !important; }` reste plus
+spécifique et continue de fonctionner.
+
+*Non-détection initiale* : les 42 vérifications DOM testaient la **propriété**
+`element.hidden`, pas le style calculé — et jsdom n'applique pas `!important`.
+La suite `tests/css.test.mjs` rejoue désormais la cascade complète et aurait
+attrapé le défaut (vérifié par mutation).
+
+**2. Ouverture en `file://`.**
+Les modules ES étant bloqués dans ce mode, `js/app.js` ne s'exécutait jamais :
+aucun message ne pouvait s'afficher, puisque le message venait du module.
+
+*Correctifs* :
+- `js/boot.js`, script **classique**, affiche la procédure complète avec le chemin
+  exact du dossier de l'utilisateur, même quand les modules sont bloqués ;
+- chien de garde de 8 s si le module ne démarre pas pour une autre raison ;
+- lanceurs double-clic `Lancer-Company-Locator.bat` et `lancer.sh` ;
+- `node server.js --open` ouvre le navigateur, et le serveur essaie les 9 ports
+  suivants si le port demandé est occupé.

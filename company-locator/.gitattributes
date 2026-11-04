@@ -1,0 +1,18 @@
+# Fins de ligne imposées : un .bat avec des LF seuls peut mal se comporter
+# sous cmd.exe, et un .sh avec des CRLF ne démarre pas sous Unix.
+*.bat text eol=crlf
+*.sh  text eol=lf
+*.js  text eol=lf
+*.mjs text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.json text eol=lf
+*.md  text eol=lf
+
+# Ressources binaires
+*.png binary
+*.jpg binary
+*.svg text eol=lf
+
+# Bibliothèque tierce : conservée telle quelle, aucune normalisation
+vendor/** -text

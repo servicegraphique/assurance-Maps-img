@@ -65,6 +65,14 @@
 /* ----------------------------- 2. Base ------------------------------ */
 *, *::before, *::after { box-sizing: border-box; }
 
+/* L'attribut hidden doit TOUJOURS gagner sur une règle `display` d'auteur.
+   Sans `!important`, `.modal { display: flex }` ou `.lightbox { display: flex }`
+   battent le `[hidden] { display: none }` de la feuille de style du navigateur
+   (une déclaration d'auteur l'emporte toujours sur une déclaration utilisateur) :
+   les modales et la lightbox resteraient alors visibles en permanence.
+   `.tab-panel[hidden]` (impression, responsive.css) reste plus spécifique. */
+[hidden] { display: none !important; }
+
 html { -webkit-text-size-adjust: 100%; }
 
 body {
@@ -572,6 +580,23 @@ select { cursor: pointer; appearance: none; padding-right: 30px;
 .lightbox-prev { left: -56px; }
 .lightbox-next { right: -56px; }
 .lightbox-nav:disabled { opacity: .25; }
+
+/* ------------------- Bandeau d'aide au démarrage -------------------- */
+.boot-help-title { display: block; font-size: var(--fs-md); margin-bottom: var(--sp-2); }
+.boot-help-intro { margin: 0 0 var(--sp-3); }
+.boot-help-steps { margin: 0 0 var(--sp-3); padding-left: var(--sp-5); }
+.boot-help-steps li { margin-bottom: var(--sp-2); }
+.boot-help-commands {
+  margin: 0 0 var(--sp-3);
+  padding: var(--sp-3);
+  background: #0f172a;
+  color: #e2e8f0;
+  border-radius: var(--r-md);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  overflow-x: auto;
+}
+.boot-help-footer { margin: 0; font-size: var(--fs-sm); opacity: .9; }
 
 /* ---------------------------- 14. Toasts ---------------------------- */
 .toasts { position: fixed; right: var(--sp-5); bottom: var(--sp-5); z-index: 1500; display: flex; flex-direction: column; gap: var(--sp-2); pointer-events: none; }

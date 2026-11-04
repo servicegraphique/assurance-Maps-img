@@ -879,6 +879,9 @@ async function boot() {
 
   const match = window.location.hash.match(/^#\/etablissement\/(\d{14})$/);
   if (match) selectEtablissement(match[1]);
+
+  // Démarrage réussi : désarme le chien de garde de js/boot.js.
+  window.__companyLocatorReady = true;
 }
 
 boot().catch((error) => {
