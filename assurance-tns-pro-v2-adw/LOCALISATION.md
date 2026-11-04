@@ -55,7 +55,7 @@ cette adresse` remplit la carte et les informations du bloc.
 
 | Usage | Service | Clé |
 | --- | --- | --- |
-| Carte rue | OpenStreetMap via Leaflet | non |
+| Carte rue | Esri World Street Map via Leaflet (repli automatique : OpenStreetMap France) | non |
 | Géocodage France | Base Adresse Nationale — `data.geopf.fr/geocodage` (Etalab / IGN) | non |
 | Géocodage Europe | Photon (`photon.komoot.io`, données OpenStreetMap) | non |
 | Géocodage inverse | Géoplateforme puis Photon | non |
@@ -78,7 +78,7 @@ Les attributions légales sont affichées dans la carte (Leaflet) et sous la pho
 | `vendor/leaflet/` | Leaflet 1.9.4 embarqué (BSD-2-Clause, `LICENSE` fourni) — aucun CDN requis |
 | `index.html` | Étape ajoutée + chaînage `code-postal → localisation → societe`, liens CSS et scripts |
 | `lead-handler.js` | Fusion des champs `loc_*` dans le lead et ajout du récapitulatif |
-| `tests/` | 37 tests (`node --test`), dont 10 tests DOM jsdom avec réseau simulé |
+| `tests/` | 39 tests (`node --test`), dont 12 tests DOM jsdom avec réseau simulé |
 
 ---
 
@@ -170,20 +170,36 @@ window.LOCALISATION_CONFIG = {
     aerialExport: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export'
   },
   tiles: {
-    street: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-    streetAttribution: '&copy; OpenStreetMap',
+    street: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+    streetAttribution: 'Fond de carte &copy; Esri, HERE, Garmin',
+    streetFallback: 'https://tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png',
+    streetFallbackAttribution: '&copy; OpenStreetMap France',
     aerial: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
     aerialAttribution: 'Imagerie &copy; Esri'
   }
 };
 ```
 
-> **Important — tuiles en production** : la politique d'usage de
-> `tile.openstreetmap.org` interdit un trafic de production significatif.
-> Remplacez `tiles.street` (et `tiles.aerial` si besoin) par votre fournisseur
-> habituel (IGN/Géoplateforme, MapTiler, Stadia, Thunderforest…). Aucun autre
-> réglage n'est nécessaire : le marqueur, le géocodage et les photos continuent
-> de fonctionner.
+> **Important — fond de carte** : le serveur public `tile.openstreetmap.org`
+> n'est **pas** utilisé par défaut. Il renvoie des tuiles « 403 Access blocked »
+> aux applications qui ne respectent pas sa politique d'usage (c'était le cas
+> en test, y compris en ouvrant simplement `index.html` en local).
+>
+> Le fond de carte par défaut est **Esri World Street Map** (couverture
+> européenne, sans clé, attribution affichée). Si les tuiles Esri échouent
+> (proxy, réseau, blocage), le module bascule automatiquement sur
+> **OpenStreetMap France** (`tile.openstreetmap.fr`) après trois tuiles en
+> erreur ; si tout échoue, un message discret « Fond de carte indisponible »
+> apparaît et l'adresse + les coordonnées GPS restent exploitables.
+>
+> Pour un trafic important ou des exigences de licence, remplacez
+> `tiles.street` par votre fournisseur habituel (IGN/Géoplateforme, MapTiler,
+> Stadia, Thunderforest…) et mettez `streetFallback: ''` si vous ne voulez
+> aucun autre appel. Aucun autre réglage n'est nécessaire : le marqueur, le
+> géocodage et les photos continuent de fonctionner.
+>
+> Utilitaire de contrôle : `LocalisationEntreprise.getTileProviders()` renvoie
+> les fournisseurs réellement utilisés, dans l'ordre de repli.
 
 ---
 
@@ -222,6 +238,8 @@ window.LOCALISATION_CONFIG = {
 1. **Couverture photo** : Panoramax est dense en ville en France, plus rare en
    rural et inégal en Europe ; Wikimedia Commons ne contient pas toutes les
    façades. Le repli « vue aérienne » garantit une image pour chaque adresse.
+   Le fond de carte « rue » repose sur Esri (aucune clé) : pour un volume élevé,
+   préférez un fournisseur sous contrat via `tiles.street`.
 2. **Pas de Street View / clé Google** : choix assumé (aucun coût, aucune clé).
    Le module est isolé : un provider Google Maps pourrait être ajouté dans
    `localisation.js` sans toucher au reste du formulaire.
@@ -230,7 +248,7 @@ window.LOCALISATION_CONFIG = {
    carte relance un géocodage inverse.
 4. **CSP** : si une politique de sécurité est ajoutée au domaine, autoriser
    `connect-src https://data.geopf.fr https://photon.komoot.io https://api.panoramax.xyz https://commons.wikimedia.org https://server.arcgisonline.com`,
-   `img-src https://*.tile.openstreetmap.org https://server.arcgisonline.com https://*.panoramax.xyz https://*.panoramax.fr https://upload.wikimedia.org data:`,
+   `img-src https://server.arcgisonline.com https://tile.openstreetmap.fr https://*.panoramax.xyz https://*.panoramax.fr https://upload.wikimedia.org data:`,
    `style-src 'unsafe-inline'` (Leaflet positionne ses tuiles en styles inline).
 5. **Prestataires publics** : Photon et l'API Panoramax fédérée sont des
    services publics sans SLA. Une indisponibilité affiche un message explicite

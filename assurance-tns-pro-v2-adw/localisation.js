@@ -36,8 +36,15 @@
     requestTimeoutMs: 9000,
     maxResults: 8,
     tiles: {
-      street: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-      streetAttribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>',
+      /* Fond de carte « rue ». Le serveur de tuiles public d'OpenStreetMap
+         (tile.openstreetmap.org) bloque les applications qui ne respectent pas
+         sa politique d'usage (403 « Access blocked »). Esri World Street Map
+         est utilisé par défaut : couverture européenne, pas de clé, attribution
+         affichée. Surchargez `street` pour un fournisseur sous contrat. */
+      street: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+      streetAttribution: 'Fond de carte &copy; <a href="https://www.esri.com/" target="_blank" rel="noopener">Esri</a>, HERE, Garmin',
+      streetFallback: 'https://tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png',
+      streetFallbackAttribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> France',
       aerial: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
       aerialAttribution: 'Imagerie &copy; Esri, Maxar, Earthstar Geographics'
     },
@@ -418,6 +425,68 @@
     return rootEl.offsetParent !== null || window.getComputedStyle(rootEl).position === 'fixed';
   }
 
+  /* Fournisseurs de fond de carte, dans l'ordre de repli. */
+  function streetTileProviders() {
+    var tiles = CFG.tiles || {};
+    var providers = [];
+    if (tiles.street) {
+      providers.push({ url: tiles.street, attribution: tiles.streetAttribution || '' });
+    }
+    if (tiles.streetFallback) {
+      providers.push({
+        url: tiles.streetFallback,
+        attribution: tiles.streetFallbackAttribution || tiles.streetAttribution || ''
+      });
+    }
+    return providers;
+  }
+
+  function showMapNotice(map, text) {
+    if (!map || !map.getContainer) return;
+    var container = map.getContainer();
+    if (!container || container.querySelector('.loc-map__notice')) return;
+    var notice = document.createElement('div');
+    notice.className = 'loc-map__notice';
+    notice.textContent = text || 'Fond de carte indisponible';
+    container.appendChild(notice);
+  }
+
+  /* Ajoute le fond de carte et bascule sur le fournisseur suivant si les
+   * tuiles échouent (403, réseau, blocage d'extension…), pour ne jamais
+   * laisser la carte vide. */
+  function addStreetTiles(map) {
+    var providers = streetTileProviders();
+    if (!providers.length) return null;
+    var state = { index: 0, layer: null };
+
+    function attach() {
+      var provider = providers[state.index];
+      var layer = window.L.tileLayer(provider.url, {
+        maxZoom: 19,
+        attribution: provider.attribution
+      });
+      var errors = 0;
+      layer.on('tileerror', function () {
+        if (!map.hasLayer(layer)) return;
+        errors += 1;
+        if (errors < 3) return;
+        map.removeLayer(layer);
+        if (state.index < providers.length - 1) {
+          log('Tuiles indisponibles, bascule sur « ' + providers[state.index + 1].url + ' »');
+          state.index += 1;
+          attach();
+          return;
+        }
+        showMapNotice(map, 'Fond de carte indisponible — l’adresse et les coordonnées restent valides.');
+      });
+      layer.addTo(map);
+      state.layer = layer;
+    }
+
+    attach();
+    return state;
+  }
+
   function ensureLocalisationMap() {
     if (MAPS.localisation || !window.L || !UI.blocks.localisation.map) return MAPS.localisation || null;
     var container = UI.blocks.localisation.map;
@@ -431,10 +500,7 @@
         attributionControl: true,
         minZoom: 3
       }).setView(start, address ? CFG.mapZoom : 5);
-      window.L.tileLayer(CFG.tiles.street, {
-        maxZoom: 19,
-        attribution: CFG.tiles.streetAttribution
-      }).addTo(map);
+      addStreetTiles(map);
     } catch (e) {
       log('Initialisation de la carte impossible', e);
       renderMapFallback('localisation');
@@ -1433,6 +1499,8 @@
       getRecap: function () { return Core.toRecap(STATE); },
       isValidated: function () { return Core.isStateValidated(STATE); },
       isRequired: function () { return CFG.requireValidation; },
+      getConfig: function () { return JSON.parse(JSON.stringify(CFG)); },
+      getTileProviders: function () { return streetTileProviders(); },
       open: function (name) { openModal(name === 'batiment' ? 'batiment' : 'localisation'); },
       reset: function () {
         STATE = Core.createState();

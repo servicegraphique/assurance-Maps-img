@@ -217,6 +217,26 @@
   text-decoration: underline;
 }
 
+/* Affiché si aucun fournisseur de tuiles ne répond : la carte reste utile
+   (adresse + coordonnées), sans laisser croire à une erreur de saisie. */
+.loc-map__notice {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  z-index: 800;
+  max-width: calc(100% - 16px);
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, .94);
+  color: var(--loc-ink-soft);
+  box-shadow: 0 1px 3px rgba(16, 24, 40, .18);
+  font-family: Roboto, sans-serif;
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 1.35;
+  pointer-events: none;
+}
+
 .loc-map__fallback-coords {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   color: var(--loc-ink) !important;
