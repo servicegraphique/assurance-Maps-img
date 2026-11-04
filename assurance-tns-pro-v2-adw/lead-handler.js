@@ -571,6 +571,27 @@ var UBE_CONFIG = {
     }
     data.autre_info_fj = recap.join('\n');
 
+    /* --- Module de localisation (localisation.js) ---
+       Adresse, coordonnées GPS et photo du bâtiment validées par le visiteur.
+       Les champs sont préfixés loc_ ; un rappel lisible est ajouté au champ
+       autre_info_fj pour apparaître aussi dans Google Sheets. */
+    var locModule = window.LocalisationEntreprise;
+    if (locModule && typeof locModule.getLeadFields === 'function') {
+      try {
+        var locFields = locModule.getLeadFields() || {};
+        Object.keys(locFields).forEach(function (key) {
+          var valeur = clean(locFields[key], 1200);
+          if (valeur) data[key] = valeur;
+        });
+        var locRecap = typeof locModule.getRecap === 'function' ? String(locModule.getRecap() || '') : '';
+        locRecap = locRecap.split('\n').map(function (ligne) { return clean(ligne, 300); })
+          .filter(Boolean).join('\n');
+        if (locRecap) data.autre_info_fj = [data.autre_info_fj, locRecap].filter(Boolean).join('\n');
+      } catch (e) {
+        debugLog('Lecture des données de localisation impossible.', e);
+      }
+    }
+
     if (trackingGranted()) {
       ['user', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'utm_id',
         'utm_category', 'utm_user', 'ltm_source', 'ltm_category', 'ltm_typ', 'ltm_user'].forEach(function (key) {
@@ -648,6 +669,15 @@ var UBE_CONFIG = {
       societe: data.societe || '',
       code_postal: data.code_postal || '',
       ville: data.ville || '',
+      loc_adresse: clean(data.loc_adresse || '', 400),
+      loc_latitude: data.loc_latitude || '',
+      loc_longitude: data.loc_longitude || '',
+      loc_batiment_adresse: clean(data.loc_batiment_adresse || '', 400),
+      loc_batiment_latitude: data.loc_batiment_latitude || '',
+      loc_batiment_longitude: data.loc_batiment_longitude || '',
+      loc_batiment_photo: clean(data.loc_batiment_photo || '', 500),
+      loc_batiment_vue: data.loc_batiment_vue || '',
+      loc_batiment_validee: data.loc_batiment_validee || '',
       site: '',
       solution: clean(data.reponse_1 || '', 500),
       enjeu: clean(data.autre_info_fj || '', 500),

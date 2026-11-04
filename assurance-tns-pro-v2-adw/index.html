@@ -11,6 +11,8 @@
   <meta content="Webflow" name="generator">
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="fonts-global.css">
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="localisation.css">
   
   
   
@@ -142,13 +144,83 @@
               </div>
             </div>
             <div data-form="step" class="etape-2 form-blobale">
-              <div data-go-to="societe" data-answer="code-postal" class="etape-content form-blobale">
+              <div data-go-to="localisation" data-answer="code-postal" class="etape-content form-blobale">
                 <div class="titre-assurance-iard">Quelle est la société concernée par cette demande ?</div>
                 <div class="coordonnees-societe"><input class="nom-societe w-input" maxlength="256" name="societe" data-name="societe" placeholder="Nom de la société" type="text" required=""><input class="code-postale-webflow w-input" data-phone-autoformat="xxxxx" maxlength="256" data-min-character="5" name="code_postal" data-name="code_postal" placeholder="Code postal" type="tel" required=""></div>
                 <div class="etape-bouton assurance-iard">
                   <a data-form="back-btn" href="#" class="bouton-precedent rc-pro w-button">Précédent</a>
                   <a data-form="next-btn" href="#" class="bouton-suivant rc-pro w-button">Suivant</a>
                 </div>
+              </div>
+            </div>
+            <div data-form="step" class="etape-2 form-blobale etape-localisation">
+              <div data-answer="localisation" data-go-to="societe" class="etape-content form-blobale" id="loc-section">
+                <div class="loc-head">
+                  <h2 class="loc-head__title">Localisation et identification de votre entreprise</h2>
+                  <p class="loc-head__text">Retrouvez l’adresse de vos locaux, placez votre entreprise sur la carte et identifiez votre bâtiment. Ces informations nous permettent de préparer une offre réellement adaptée à votre activité.</p>
+                </div>
+                <div class="loc-grid">
+                  <section class="loc-bloc" data-loc-bloc="localisation" aria-labelledby="loc-titre-localisation">
+                    <div class="loc-bloc__head">
+                      <span class="loc-bloc__num" aria-hidden="true">1</span>
+                      <h3 class="loc-bloc__title" id="loc-titre-localisation">Localisation</h3>
+                      <span class="loc-bloc__badge" data-loc-badge>À compléter</span>
+                    </div>
+                    <div class="loc-map" data-loc-map="localisation" role="region" aria-label="Carte de localisation de l’entreprise"></div>
+                    <div class="loc-infos">
+                      <p class="loc-infos__label" data-loc-address data-empty="1">Adresse non renseignée</p>
+                      <p class="loc-infos__coords" data-loc-coords></p>
+                      <p class="loc-infos__meta" data-loc-meta>Cliquez sur « Rechercher » ou directement sur la carte.</p>
+                    </div>
+                    <div class="loc-actions">
+                      <button type="button" class="loc-btn loc-btn--ghost" data-loc-search>Rechercher</button>
+                      <button type="button" class="loc-btn loc-btn--primary" data-loc-validate aria-pressed="false"><span class="loc-btn__check" aria-hidden="true">✓</span><span>Valider</span></button>
+                    </div>
+                    <p class="loc-status" data-loc-status role="status" aria-live="polite"></p>
+                  </section>
+                  <section class="loc-bloc" data-loc-bloc="batiment" aria-labelledby="loc-titre-batiment">
+                    <div class="loc-bloc__head">
+                      <span class="loc-bloc__num" aria-hidden="true">2</span>
+                      <h3 class="loc-bloc__title" id="loc-titre-batiment">Bâtiment</h3>
+                      <span class="loc-bloc__badge" data-loc-badge>À compléter</span>
+                    </div>
+                    <div class="loc-tabs" role="group" aria-label="Type de vue du bâtiment">
+                      <button type="button" class="loc-tab" data-loc-view="facade" aria-pressed="true">Façade</button>
+                      <button type="button" class="loc-tab" data-loc-view="aerienne" aria-pressed="false">Vue aérienne</button>
+                    </div>
+                    <div class="loc-media" data-loc-media>
+                      <img data-loc-photo alt="" hidden>
+                      <div class="loc-map" data-loc-map="batiment" role="region" aria-label="Vue aérienne du bâtiment" hidden></div>
+                      <div class="loc-media__placeholder" data-loc-photo-empty>
+                        <strong>Photographie du bâtiment</strong>
+                        <p data-loc-photo-empty-text>Lancez une recherche d’adresse pour afficher le bâtiment.</p>
+                        <button type="button" class="loc-btn loc-btn--ghost" data-loc-view-aerial hidden>Voir la vue aérienne</button>
+                      </div>
+                      <div class="loc-media__loading" data-loc-photo-loading hidden><span class="loc-spinner" aria-hidden="true"></span>Recherche de la photographie…</div>
+                    </div>
+                    <p class="loc-credit" data-loc-credit></p>
+                    <button type="button" class="loc-btn loc-btn--link" data-loc-photo-next hidden>Voir une autre photo</button>
+                    <div class="loc-infos">
+                      <p class="loc-infos__label" data-loc-address data-empty="1">Adresse du bâtiment non renseignée</p>
+                      <p class="loc-infos__coords" data-loc-coords></p>
+                      <p class="loc-infos__meta" data-loc-meta>Cliquez sur « Rechercher » pour identifier le bâtiment.</p>
+                    </div>
+                    <div class="loc-actions">
+                      <button type="button" class="loc-btn loc-btn--ghost" data-loc-search>Rechercher</button>
+                      <button type="button" class="loc-btn loc-btn--primary" data-loc-validate aria-pressed="false"><span class="loc-btn__check" aria-hidden="true">✓</span><span>Valider</span></button>
+                    </div>
+                    <p class="loc-status" data-loc-status role="status" aria-live="polite"></p>
+                  </section>
+                </div>
+                <p class="loc-gate" data-loc-gate role="alert" hidden>
+                  <span data-loc-gate-text>Il reste à valider la localisation et le bâtiment.</span>
+                  <button type="button" class="loc-gate__skip" data-loc-skip>Je renseignerai ces informations plus tard</button>
+                </p>
+                <div class="etape-bouton assurance-iard">
+                  <a data-form="back-btn" href="#" class="bouton-precedent rc-pro w-button">Précédent</a>
+                  <a data-form="next-btn" href="#" class="bouton-suivant rc-pro w-button">Suivant</a>
+                </div>
+                <p class="loc-mention">Cartographie : OpenStreetMap · Adresses : Base Adresse Nationale (Etalab) et Photon · Photographies : Panoramax et Wikimedia Commons · Vue aérienne : Esri. Les informations saisies restent sur votre appareil jusqu’à l’envoi du formulaire.</p>
               </div>
             </div>
             <div data-form="step" class="etape-2 form-blobale">
@@ -321,7 +393,10 @@
   
   
   
+<script src="vendor/leaflet/leaflet.js" defer></script>
 <script src="script.js?v=3" defer></script>
+<script src="localisation-core.js" defer></script>
+<script src="localisation.js" defer></script>
 <script src="lead-handler.js" defer></script>
 <script src="verification-sms.js" defer></script>
 </body>
