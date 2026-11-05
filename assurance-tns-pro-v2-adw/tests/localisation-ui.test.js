@@ -251,7 +251,7 @@ test('le bouton Suivant est bloqué tant que les deux blocs ne sont pas validés
   assert.equal(wizardNext, 1, 'le lien de poursuite doit laisser passer une fois');
 });
 
-test('le bâtiment s’affiche en vue aérienne et propose sa photo extérieure', async () => {
+test('le bâtiment propose les quatre vues, dont une image de rue', async () => {
   const { window, document } = await createPage({
     'data.geopf.fr': geopfPayload(),
     'photon.komoot.io': { features: [] },
@@ -266,27 +266,43 @@ test('le bâtiment s’affiche en vue aérienne et propose sa photo extérieure'
   await wait(80);
 
   const panel = document.querySelector('[data-loc-bloc="batiment"]');
-  // L'image par défaut est la vue aérienne du bâtiment
+  // Les 4 boutons demandés sont présents
+  const tabs = [...panel.querySelectorAll('[data-loc-view]')].map((tab) => tab.getAttribute('data-loc-view'));
+  assert.deepEqual(tabs, ['osm', 'ign', 'aerienne', 'rue']);
+  assert.deepEqual(
+    [...panel.querySelectorAll('[data-loc-view]')].map((tab) => tab.textContent.trim()),
+    ['Plan OSM', 'Plan IGN', 'Photo aérienne', 'Street View']
+  );
+
+  // Vue par défaut : photo aérienne
   assert.equal(hiddenValue(document, 'loc_batiment_vue'), 'vue aerienne');
+  assert.equal(panel.querySelector('[data-loc-view="aerienne"]').getAttribute('aria-pressed'), 'true');
   const aerial = panel.querySelector('[data-loc-map="batiment"]');
   assert.equal(aerial.hidden, false);
   assert.ok(aerial.querySelector('.loc-map__fallback'), 'repli cartographique attendu sans Leaflet');
-  assert.equal(panel.querySelector('[data-loc-photo]').hidden, true);
-  assert.equal(hiddenValue(document, 'loc_batiment_photo'), 'https://exemple.test/panoramax.jpg');
+  assert.equal(panel.querySelector('[data-loc-rue]').hidden, true);
 
-  // La photo extérieure reste accessible via son onglet
-  panel.querySelector('[data-loc-view="facade"]').click();
+  // « Street View » : image de rue plein cadre, crédit et lien source
+  panel.querySelector('[data-loc-view="rue"]').click();
+  await wait(30);
+  const rue = panel.querySelector('[data-loc-rue]');
+  assert.equal(rue.hidden, false);
+  assert.equal(aerial.hidden, true);
+  const img = panel.querySelector('[data-loc-rue-img]');
+  assert.equal(img.getAttribute('src'), 'https://exemple.test/panoramax.jpg');
+  assert.match(panel.querySelector('[data-loc-rue-credit]').textContent, /Panoramax|CC-BY-SA-4.0/);
+  assert.equal(panel.querySelector('[data-loc-rue-address]').textContent, '12 Rue de la Paix 75002 Paris');
+  assert.match(panel.querySelector('[data-loc-credit]').textContent, /CC-BY-SA-4.0/);
+  assert.match(panel.querySelector('[data-loc-credit]').textContent, /ouvrir le panorama/);
+  assert.equal(hiddenValue(document, 'loc_batiment_vue'), 'rue');
+
+  // Retour au plan OSM puis validation
+  panel.querySelector('[data-loc-view="osm"]').click();
   await wait(20);
-  const img = panel.querySelector('[data-loc-photo]');
-  assert.equal(img.hidden, false);
-  assert.equal(img.getAttribute('src'), 'https://exemple.test/panoramax-thumb.jpg');
-  const credit = panel.querySelector('[data-loc-credit]');
-  assert.match(credit.textContent, /Photographe Test/);
-  assert.match(credit.textContent, /CC-BY-SA-4.0/);
-  assert.match(credit.textContent, /ouvrir la source/);
-  assert.equal(hiddenValue(document, 'loc_batiment_vue'), 'facade');
+  assert.equal(hiddenValue(document, 'loc_batiment_vue'), 'plan osm');
+  assert.equal(rue.hidden, true);
+  assert.equal(aerial.hidden, false);
 
-  // Retour à la vue aérienne puis validation
   panel.querySelector('[data-loc-view="aerienne"]').click();
   await wait(20);
   panel.querySelector('[data-loc-validate]').click();
@@ -314,7 +330,14 @@ test('sans photo disponible, la vue aérienne est proposée automatiquement', as
   const panel = document.querySelector('[data-loc-bloc="batiment"]');
   assert.equal(hiddenValue(document, 'loc_batiment_vue'), 'vue aerienne');
   assert.equal(panel.querySelector('[data-loc-map="batiment"]').hidden, false);
-  assert.match(panel.querySelector('[data-loc-status]').textContent, /vue aérienne/i);
+  assert.match(panel.querySelector('[data-loc-status]').textContent, /aucune image de rue/i);
+
+  // L'onglet Street View reste proposé mais explique l'absence d'image
+  panel.querySelector('[data-loc-view="rue"]').click();
+  await wait(20);
+  assert.equal(panel.querySelector('[data-loc-rue]').hidden, true);
+  assert.equal(panel.querySelector('[data-loc-placeholder]').hidden, false);
+  assert.match(panel.querySelector('[data-loc-placeholder-text]').textContent, /aucune image de rue/i);
 
   panel.querySelector('[data-loc-validate]').click();
   await wait(10);
@@ -364,33 +387,38 @@ test('les fournisseurs indisponibles produisent un message d’erreur explicite'
   assert.equal(modal.querySelector('[data-loc-submit]').disabled, false);
 });
 
-test('le fond de carte par défaut évite le serveur de tuiles OSM bloquant', async () => {
+test('les quatre vues utilisent des fonds de carte sans clé et sans serveur OSM bloqué', async () => {
   const { window } = await createPage();
   const config = window.LocalisationEntreprise.getConfig();
-  assert.match(config.tiles.street, /World_Street_Map/);
-  assert.doesNotMatch(config.tiles.street, /tile\.openstreetmap\.org/);
-  assert.match(config.tiles.streetFallback, /tile\.openstreetmap\.fr/);
+  assert.match(config.tiles.osm, /tile\.openstreetmap\.fr/);
+  assert.doesNotMatch(config.tiles.osm, /tile\.openstreetmap\.org/);
+  assert.match(config.tiles.ign, /data\.geopf\.fr\/wmts/);
+  assert.match(config.tiles.ign, /PLANIGNV2/);
+  assert.match(config.tiles.aerial, /World_Imagery/);
+  assert.equal(window.LocalisationEntreprise.getView('localisation'), 'osm');
+  assert.equal(window.LocalisationEntreprise.getView('batiment'), 'aerienne');
 
+  // Repli si le plan ne répond pas : Esri, puis message explicite
   const providers = window.LocalisationEntreprise.getTileProviders();
   assert.equal(providers.length, 2);
-  assert.equal(providers[0].url, config.tiles.street);
-  assert.match(providers[0].attribution, /Esri/);
-  assert.match(providers[1].attribution, /OpenStreetMap/);
+  assert.match(providers[0].url, /tile\.openstreetmap\.fr/);
+  assert.match(providers[0].attribution, /OpenStreetMap/);
+  assert.match(providers[1].attribution, /Esri/);
 });
 
-test('un fournisseur de tuiles sous contrat peut remplacer le fond par défaut', async () => {
+test('les fonds de carte peuvent être remplacés par un fournisseur sous contrat', async () => {
   const { window } = await createPage({}, {
     tiles: {
-      street: 'https://tuiles.exemple.test/{z}/{x}/{y}.png',
-      streetAttribution: 'Tuiles Exemple',
-      streetFallback: ''
+      osm: 'https://tuiles.exemple.test/osm/{z}/{x}/{y}.png',
+      osmAttribution: 'Tuiles Exemple',
+      street: ''
     }
   });
   const config = window.LocalisationEntreprise.getConfig();
-  assert.equal(config.tiles.street, 'https://tuiles.exemple.test/{z}/{x}/{y}.png');
+  assert.equal(config.tiles.osm, 'https://tuiles.exemple.test/osm/{z}/{x}/{y}.png');
   const providers = window.LocalisationEntreprise.getTileProviders();
   assert.equal(providers.length, 1);
-  assert.equal(providers[0].url, 'https://tuiles.exemple.test/{z}/{x}/{y}.png');
+  assert.equal(providers[0].url, 'https://tuiles.exemple.test/osm/{z}/{x}/{y}.png');
   assert.equal(providers[0].attribution, 'Tuiles Exemple');
 });
 
@@ -497,4 +525,43 @@ test('l’affichage de l’étape déclenche la reprise automatique de l’adres
     document.querySelector('[data-loc-bloc="batiment"] [data-loc-address]').textContent,
     '12 Rue de la Paix 75002 Paris'
   );
+});
+
+test('le bloc localisation propose aussi les quatre vues et une image de rue', async () => {
+  const { window, document } = await createPage({
+    'data.geopf.fr': geopfPayload(),
+    'photon.komoot.io': { features: [] },
+    'api.panoramax.xyz': panoramaxPayload(),
+    'commons.wikimedia.org': { query: { pages: {} } }
+  });
+  setCompanyFields(document, {
+    societe: 'Boulangerie Test',
+    adresse: '12 rue de la Paix',
+    code_postal: '75002',
+    ville: 'Paris'
+  });
+  await window.LocalisationEntreprise.prefill();
+  await wait(80);
+
+  const panel = document.querySelector('[data-loc-bloc="localisation"]');
+  assert.deepEqual(
+    [...panel.querySelectorAll('[data-loc-view]')].map((tab) => tab.getAttribute('data-loc-view')),
+    ['osm', 'ign', 'aerienne', 'rue']
+  );
+  assert.equal(hiddenValue(document, 'loc_vue'), 'plan osm');
+
+  panel.querySelector('[data-loc-view="ign"]').click();
+  await wait(20);
+  assert.equal(hiddenValue(document, 'loc_vue'), 'plan ign');
+  assert.equal(panel.querySelector('[data-loc-view="ign"]').getAttribute('aria-pressed'), 'true');
+  assert.match(panel.querySelector('[data-loc-credit]').textContent, /IGN/);
+
+  panel.querySelector('[data-loc-view="rue"]').click();
+  await wait(40);
+  assert.equal(panel.querySelector('[data-loc-rue]').hidden, false);
+  assert.equal(panel.querySelector('[data-loc-map]').hidden, true);
+  assert.equal(panel.querySelector('[data-loc-rue-img]').getAttribute('src'), 'https://exemple.test/panoramax.jpg');
+  assert.equal(panel.querySelector('[data-loc-rue-address]').textContent, '12 Rue de la Paix 75002 Paris');
+  assert.equal(hiddenValue(document, 'loc_vue'), 'rue');
+  assert.ok(window.LocalisationEntreprise.getState().batiment.photo, 'photo de rue enregistrée pour le lead');
 });
