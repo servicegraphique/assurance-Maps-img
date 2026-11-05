@@ -48,14 +48,23 @@ et position GPS.
 | `loc_precision`, `loc_source` | Niveau de précision et source du géocodage |
 | `loc_naf` | Activité principale (NAF/APE) |
 | `loc_page` | Fiche Annuaire des entreprises |
+| `loc_telephone`, `loc_mobile` | Téléphone fixe / mobile **saisis** dans la fiche (souvent vides) |
+| `loc_email`, `loc_contact` | E-mail et personne/service à joindre **saisis** dans la fiche |
 | `adresse`, `ville` | Champs cachés historiques, remplis automatiquement |
+
+> Les quatre champs de contact n'existent pas dans l'API officielle
+> (`recherche-entreprises.api.gouv.fr`) : ils ne sont transmis que si le
+> visiteur les a saisis dans le bloc « Coordonnées de contact » de la fiche
+> (stockage local, sur son appareil). Ils restent vides sinon — rien n'est
+> inventé.
 
 Un récapitulatif lisible est ajouté à `autre_info_fj` (visible dans Google
 Sheets). `lead-handler.js` lit ces valeurs via `window.LocalisateurEntreprise`.
 
 > Le script Apps Script doit exposer les nouvelles colonnes `loc_entreprise`,
 > `loc_siret`, `loc_siren`, `loc_code_postal`, `loc_commune`, `loc_precision`,
-> `loc_source`, `loc_naf`, `loc_page` s'il filtre les paramètres reçus.
+> `loc_source`, `loc_naf`, `loc_page`, `loc_telephone`, `loc_mobile`,
+> `loc_email`, `loc_contact` s'il filtre les paramètres reçus.
 
 ## Protocole iframe ↔ formulaire (`postMessage`)
 

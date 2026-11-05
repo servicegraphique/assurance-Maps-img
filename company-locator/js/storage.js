@@ -277,6 +277,46 @@ export const userPhotos = {
 };
 
 /* ==================================================================== */
+/* 5 bis. Coordonnées de contact saisies par l'utilisateur               */
+/* ==================================================================== */
+
+const CONTACTS_KEY = 'contacts';
+
+/**
+ * L'API officielle ne publie pas les coordonnées de contact : elles sont
+ * saisies pour un SIRET précis et restent sur l'appareil.
+ */
+export const userContacts = {
+  get(siret) {
+    if (!siret) return null;
+    const all = store.read(CONTACTS_KEY) || {};
+    return all[siret] || null;
+  },
+
+  save(siret, record) {
+    if (!siret || !record) return null;
+    const all = store.read(CONTACTS_KEY) || {};
+    all[siret] = record;
+    store.write(CONTACTS_KEY, all);
+    return record;
+  },
+
+  remove(siret) {
+    const all = store.read(CONTACTS_KEY) || {};
+    if (!all[siret]) return;
+    delete all[siret];
+    store.write(CONTACTS_KEY, all);
+  },
+
+  list() {
+    const all = store.read(CONTACTS_KEY) || {};
+    return Object.entries(all).map(([siret, contact]) => ({ siret, ...contact }));
+  },
+
+  clear() { store.remove(CONTACTS_KEY); },
+};
+
+/* ==================================================================== */
 /* 6. Cache & maintenance                                                */
 /* ==================================================================== */
 
@@ -315,6 +355,7 @@ export function purgeUserData() {
   history.clearAll();
   favorites.clear();
   userPhotos.clear();
+  userContacts.clear();
   purgeCache();
 }
 

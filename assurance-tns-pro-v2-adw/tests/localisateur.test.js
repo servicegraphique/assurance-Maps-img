@@ -36,6 +36,11 @@ const SELECTION = {
   precision: 'adresse',
   source: 'BAN',
   pageUrl: 'https://annuaire-entreprises.data.gouv.fr/etablissement/73282932000074',
+  // Coordonnées saisies dans le localisateur : l'API officielle ne les publie pas.
+  telephone: '0123456789',
+  mobile: '0612345678',
+  email: 'contact@exemple.fr',
+  contact: 'Marie Dupont',
 };
 
 /**
@@ -182,7 +187,12 @@ test('Le localisateur reçoit la recherche et renvoie l’entreprise choisie', a
   const fields = api.getLeadFields();
   assert.equal(fields.loc_code_postal, '75015');
   assert.equal(fields.loc_naf, '62.01Z');
+  assert.equal(fields.loc_telephone, '0123456789');
+  assert.equal(fields.loc_mobile, '0612345678');
+  assert.equal(fields.loc_email, 'contact@exemple.fr');
+  assert.equal(fields.loc_contact, 'Marie Dupont');
   assert.match(api.getRecap(), /GPS : 48\.841234, 2\.300123/);
+  assert.match(api.getRecap(), /Contact : tél\. 01 23 45 67 89 · mobile 06 12 34 56 78 · contact@exemple\.fr · Marie Dupont/);
 
   // Messages d'une autre fenêtre ignorés.
   const before = api.getSelection().nom;
@@ -238,6 +248,7 @@ test('Localisateur injoignable : message clair et lien direct', async () => {
 test('Le lead reprend l’entreprise choisie (lead-handler)', () => {
   assert.match(LEAD, /window\.LocalisateurEntreprise/);
   assert.doesNotMatch(LEAD, /window\.LocalisationEntreprise/);
-  ['loc_entreprise', 'loc_siret', 'loc_siren', 'loc_code_postal', 'loc_commune', 'loc_naf', 'loc_page']
+  ['loc_entreprise', 'loc_siret', 'loc_siren', 'loc_code_postal', 'loc_commune', 'loc_naf', 'loc_page',
+    'loc_telephone', 'loc_mobile', 'loc_email', 'loc_contact']
     .forEach((field) => assert.match(LEAD, new RegExp(`${field}:`), `colonne ${field} transmise`));
 });

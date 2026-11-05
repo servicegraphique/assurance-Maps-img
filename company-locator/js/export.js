@@ -16,6 +16,7 @@ import {
 } from './utils.js';
 import { nafLabel, departementLabel, regionLabel, natureJuridiqueLabel } from './labels.js';
 import { favorites } from './storage.js';
+import { formatPhoneFr } from './contact.js';
 import { osmLink } from './map.js';
 
 /* ==================================================================== */
@@ -174,6 +175,11 @@ export function ficheFields(fiche) {
     ['Score de géocodage', p?.score ?? '', 'Base Adresse Nationale'],
     ['Écart SIRENE / BAN (m)', p?.divergenceM ?? '', 'Calcul local (haversine)'],
     ['Lien OpenStreetMap', p ? osmLink(p.lat, p.lon) : '', 'OpenStreetMap'],
+    ['Téléphone fixe', fiche.contacts?.telephone ? formatPhoneFr(fiche.contacts.telephone) : '', 'Saisie manuelle (Company Locator)'],
+    ['Téléphone mobile', fiche.contacts?.mobile ? formatPhoneFr(fiche.contacts.mobile) : '', 'Saisie manuelle (Company Locator)'],
+    ['E-mail', fiche.contacts?.email || '', 'Saisie manuelle (Company Locator)'],
+    ['Contact', fiche.contacts?.contact || '', 'Saisie manuelle (Company Locator)'],
+    ['Note de contact', fiche.contacts?.note || '', 'Saisie manuelle (Company Locator)'],
     ['Fiche officielle', e.sourceUrl, 'Annuaire des Entreprises (DINUM)'],
   ];
   return fields.filter(([, value]) => value !== '' && value != null);

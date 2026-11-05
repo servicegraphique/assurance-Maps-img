@@ -217,6 +217,16 @@ check('js/app.js désarme le chien de garde une fois démarré', () => {
   assert.match(source, /window\.__companyLocatorReady\s*=\s*true/);
 });
 
+check('Le bloc « coordonnées de contact » possède ses styles dédiés', () => {
+  const css = readFileSync(path.join(ROOT, 'css/style.css'), 'utf8');
+  ['.contact-head', '.contact-note', '.contact-list', '.contact-item', '.contact-link',
+    '.contact-actions', '.contact-form', '.contact-form-actions', '.field-error']
+    .forEach((selector) => assert.ok(css.includes(selector), `règle ${selector} présente`));
+  // Les champs téléphone / e-mail reprennent l'habillage des champs texte.
+  assert.match(css, /input\[type="tel"\][^{]*\{/);
+  assert.match(css, /input\[type="email"\][^{]*\{/);
+});
+
 check('Aucun chemin absolu de machine dans les sources livrées', () => {
   const files = ['index.html', 'js/boot.js', 'js/app.js', 'css/style.css'];
   for (const file of files) {

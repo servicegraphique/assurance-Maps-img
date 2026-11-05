@@ -51,9 +51,18 @@ Application web locale, en HTML5 / CSS3 / JavaScript Vanilla + Leaflet. Aucun fr
 - **Administratif** : raison sociale, nom complet, sigle, nom commercial, enseignes, SIREN, SIRET, état de l'établissement *et* de l'unité légale, code NAF/APE **avec son libellé**, forme juridique, catégorie, dates de création et de fermeture, effectif, nombre d'établissements.
 - **Géographique** : adresse complète, numéro et voie, complément, code postal, ville, code commune INSEE, département, région, pays.
 - **GPS** : latitude, longitude, **niveau de précision**, score de géocodage, écart entre position SIRENE et position BAN, bouton de vérification par géocodage inverse.
+- **Coordonnées de contact** : téléphone fixe, téléphone mobile, e-mail, personne ou
+  service à joindre, plus une note libre. L'API officielle **ne publie aucune de ces
+  données** : elles se saisissent dans la fiche, sont marquées « Saisie manuelle »,
+  restent **sur l'appareil** (LocalStorage, par SIRET) et sont reprises dans l'export
+  de la fiche comme dans la charge utile transmise au formulaire. Numéros normalisés
+  (`+33`, `0033`, espaces, points), rendus cliquables (`tel:`, `mailto:`), copiables,
+  modifiables et supprimables ; une incohérence (mobile dans le champ « fixe »,
+  e-mail mal formé) est refusée avec un message explicite.
 - **Images** : vue aérienne IGN, photographies de rue, photographies complémentaires sourcées.
 - **Établissements** : liste des autres sites de la même société, filtrable par code postal.
-- **Sources** : tableau donnée → source → licence, plus l'URL exacte de la requête API utilisée.
+- **Sources** : tableau donnée → source → licence, plus l'URL exacte de la requête API utilisée
+  (« Saisie manuelle (Company Locator) » pour les coordonnées de contact).
 
 ### Carte
 
@@ -279,7 +288,8 @@ company-locator/
 │   ├── map.js                  Leaflet : fonds, marqueurs, popups, plein écran, vue aérienne
 │   ├── images.js               Photographies de rue (Panoramax, Mapillary) + photos sourcées
 │   ├── streetview.js           Vues immersives 360° : sources, URL, qualification
-│   ├── storage.js              LocalStorage : paramètres, historique opt-in, favoris, cache
+│   ├── storage.js              LocalStorage : paramètres, historique opt-in, favoris, contact, cache
+│   ├── contact.js              Coordonnées de contact : normalisation FR, validation, tel:/mailto:
 │   ├── export.js               CSV, GeoJSON, JSON, presse-papiers
 │   ├── ui.js                   Rendu DOM (résultats, fiche, images, modales, lightbox)
 │   ├── transport.js            Choix du chemin réseau : relais local ou appel direct

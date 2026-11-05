@@ -30,8 +30,13 @@ dans une iframe, en mode `?embed=1`. Voir `LOCALISATEUR.md`.
 - Champs `loc_*` transmis au CRM et au Google Sheet : `loc_entreprise`,
   `loc_siret`, `loc_siren`, `loc_adresse`, `loc_code_postal`, `loc_commune`,
   `loc_latitude`, `loc_longitude`, `loc_precision`, `loc_source`, `loc_naf`,
-  `loc_page`, plus un récapitulatif dans `autre_info_fj`. Les colonnes
+  `loc_page`, `loc_telephone`, `loc_mobile`, `loc_email`, `loc_contact`,
+  plus un récapitulatif dans `autre_info_fj`. Les colonnes
   `loc_batiment_*` de l'ancienne version ne sont plus alimentées.
+- Les quatre champs de contact proviennent du bloc « Coordonnées de
+  contact » de la fiche : l'API officielle ne publie ni téléphone ni e-mail,
+  ces valeurs sont donc saisies par le visiteur et stockées sur son appareil
+  (elles restent vides s'il ne les renseigne pas).
 - Sans sélection, « Suivant » affiche une explication et un lien de poursuite :
   aucun lead n'est bloqué, même si le localisateur est injoignable.
 - Le localisateur exige une origine `http(s)://` (modules ES). En local :
