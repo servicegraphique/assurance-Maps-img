@@ -10,7 +10,7 @@ import { readFileSync } from 'node:fs';
 import {
   fetchPanoramax, fetchMapillary, fetchStreetPhotos, detectMapillaryAccess,
   getComplementaryPhotos, addComplementaryPhoto, removeComplementaryPhoto,
-  streetPhotoView,
+  streetPhotoView, bearingDeg, panoFrame, pickStreetPhotoIndex, PANO_ZOOM,
 } from '../../js/images.js';
 import { purgeUserData } from '../../js/storage.js';
 import { ERR } from '../../js/utils.js';
@@ -208,4 +208,39 @@ test('Vue de rue de la carte : image, crédit, compteur et lien source', () => {
   // Aucune URL affichable : rien n'est inventé.
   assert.equal(streetPhotoView({ ...photo, fullUrl: 'javascript:alert(1)', thumbUrl: '' }), null);
   assert.equal(streetPhotoView(null), null);
+});
+
+test('Vue de rue : le panorama est recadré face au bâtiment', () => {
+  assert.equal(Math.round(bearingDeg(48.8566, 2.3522, 48.8666, 2.3522)), 0, 'plein nord');
+  assert.equal(Math.round(bearingDeg(48.8566, 2.3522, 48.8566, 2.3622)), 90, 'plein est');
+
+  const pano = {
+    isPano: true, lat: 48.84130, lon: 2.30020, direction: 180, distanceM: 12,
+  };
+  // Bâtiment au nord de la photographie, caméra tournée vers le sud :
+  // il se trouve à 180° du centre de l'image, soit au bord opposé.
+  const frame = panoFrame(pano, { lat: 48.84140, lon: 2.30020 });
+  assert.equal(frame.widthPct, PANO_ZOOM * 100);
+  // Décalage borné : la fenêtre reste toujours à l'intérieur du panorama.
+  assert.ok(frame.leftPct <= 0 && frame.leftPct >= -180, `décalage borné (${frame.leftPct})`);
+  // Bâtiment exactement dans l'axe de la caméra : cadrage centré.
+  const centered = panoFrame(pano, { lat: 48.84030, lon: 2.30020 });
+  assert.ok(Math.abs(centered.leftPct + (PANO_ZOOM - 1) * 50) < 0.001, 'centré quand le bâtiment est devant');
+  // Pas de relèvement connu : on reste centré, jamais de bande vide.
+  const noDirection = panoFrame({ ...pano, direction: null }, { lat: 48.8414, lon: 2.3002 });
+  assert.ok(Math.abs(noDirection.leftPct + 90) < 0.001, 'centré sans relèvement connu');
+  assert.equal(panoFrame({ ...pano, isPano: false }, { lat: 48.8414, lon: 2.3002 }), null);
+});
+
+test('Vue de rue : la photographie montrant la façade est choisie en premier', () => {
+  const target = { lat: 48.84140, lon: 2.30020 }; // bâtiment plein nord de la caméra
+  const away = { id: 'a', isPano: false, direction: 180, lat: 48.84100, lon: 2.30020, distanceM: 10 };
+  const facing = { id: 'b', isPano: false, direction: 0, lat: 48.84100, lon: 2.30020, distanceM: 40 };
+  const pano = { id: 'c', isPano: true, direction: 180, lat: 48.84120, lon: 2.30020, distanceM: 70 };
+  assert.equal(pickStreetPhotoIndex([away, facing, pano], target), 1, 'photo de façade à 40 m');
+  // Sans cible, on garde l'ordre du fournisseur (la plus proche).
+  assert.equal(pickStreetPhotoIndex([away, facing, pano], null), 0);
+  // Une vue panoramique reste utilisable : elle est recentrée sur le bâtiment.
+  assert.equal(pickStreetPhotoIndex([away, pano], target), 1);
+  assert.equal(pickStreetPhotoIndex([], target), 0);
 });

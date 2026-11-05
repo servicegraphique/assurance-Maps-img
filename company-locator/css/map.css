@@ -70,8 +70,14 @@
   object-fit: cover; object-position: 50% 55%; display: block;
 }
 /* Les photographies Panoramax sont des panoramas 360° : on recadre la bande
-   centrale pour retrouver le cadrage d'une vue de rue classique. */
-.map-street-img.is-pano { transform: scale(1.6); transform-origin: 50% 56%; }
+   qui fait face à l'immeuble (--pano-left est calculé depuis le relèvement
+   photographie → bâtiment) plutôt que d'afficher le tour complet, écrasé. */
+.map-street-img.is-pano {
+  width: var(--pano-width, 280%);
+  left: var(--pano-left, -90%);
+  right: auto;
+  object-position: 50% 56%;
+}
 .map-street-img[hidden] { display: none !important; }
 
 .map-street-scrim {

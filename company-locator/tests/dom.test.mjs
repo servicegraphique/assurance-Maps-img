@@ -429,6 +429,11 @@ check('Le 4e bouton Street View affiche l’image de rue de la société', () =>
   assert.match($('#map-street-label').textContent, /\S/);
   assert.match($('#map-street-credit').textContent, /Panoramax|Mapillary|CC/);
   assert.match($('#map-credits').textContent, /Vue de rue/);
+  if (img.classList.contains('is-pano')) {
+    // Panorama : le cadrage est calculé pour faire face au bâtiment.
+    assert.equal(img.style.getPropertyValue('--pano-width'), '280%');
+    assert.match(img.style.getPropertyValue('--pano-left'), /^-\d/);
+  }
 });
 
 const rueAvant = $('#map-street-img').getAttribute('src');

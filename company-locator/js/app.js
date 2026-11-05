@@ -839,7 +839,9 @@ function renderMapStreet() {
       status = 'empty';
       message = 'Aucune photographie de rue n’est disponible pour ce point. Élargissez le rayon de recherche dans les paramètres, déplacez la carte, ou revenez au plan.';
     } else {
-      photo = images.streetPhotoView(photos[index], { index, total: photos.length });
+      photo = images.streetPhotoView(photos[index], {
+        index, total: photos.length, target: target ? { lat: target.lat, lon: target.lon } : null,
+      });
       if (photo) {
         status = 'ready';
       } else {
@@ -917,7 +919,11 @@ async function openMapStreet({ force = false } = {}) {
       limit: config.imagery.maxStreetPhotos,
     });
     if (!state.mapStreet.active || state.mapStreet.seq !== seq) return;
-    state.mapStreet = { ...state.mapStreet, loading: false, photos: result.photos, index: 0, error: null };
+    // On démarre sur la photographie qui montre le mieux l'immeuble.
+    const startIndex = images.pickStreetPhotoIndex(result.photos, target);
+    state.mapStreet = {
+      ...state.mapStreet, loading: false, photos: result.photos, index: startIndex, error: null,
+    };
   } catch (error) {
     if (!state.mapStreet.active || state.mapStreet.seq !== seq) return;
     state.mapStreet = { ...state.mapStreet, loading: false, photos: [], error: toUserMessage(error) };
