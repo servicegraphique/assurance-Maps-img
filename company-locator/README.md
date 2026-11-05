@@ -10,6 +10,7 @@ Application web locale, en HTML5 / CSS3 / JavaScript Vanilla + Leaflet. Aucun fr
 
 1. [Ce que fait l'application](#1-ce-que-fait-lapplication)
 2. [Installation et lancement (Windows, macOS, Linux)](#2-installation-et-lancement)
+2 bis. [Mode intégré dans un formulaire (`?embed=1`)](#2-bis-mode-intégré-dans-un-formulaire-embed1)
 3. [Configuration Mapillary (optionnelle)](#3-configuration-mapillary-optionnelle)
 4. [Architecture des fichiers](#4-architecture-des-fichiers)
 5. [API utilisées, limites et licences](#5-api-utilisées-limites-et-licences)
@@ -149,6 +150,48 @@ L'application fonctionne, mais **sans le relais local** :
 **L'API Recherche d'entreprises n'expose pas d'en-tête `Access-Control-Allow-Origin`.** Un appel direct depuis le navigateur peut donc être bloqué. C'est la raison d'être du relais intégré à `server.js` : les requêtes partent du serveur local (non soumis à CORS) et reviennent au navigateur en même origine. **Utilisez `node server.js`.**
 
 Le chemin réseau réellement utilisé est affiché dans **Paramètres → Connexion aux services** et dans le panneau d'état des API.
+
+---
+
+## 2 bis. Mode intégré dans un formulaire (`?embed=1`)
+
+Le localisateur peut être **intégré dans un autre formulaire** (c'est le cas du formulaire d'assurance `assurance-tns-pro-v2-adw`, à l'étape « Localisez votre entreprise »).
+
+```
+../company-locator/index.html?embed=1&nom=Allianz&cp=75015
+```
+
+| Paramètre | Effet |
+|---|---|
+| `embed=1` | Mode intégré : en-tête, recherche, historique, paramètres et exports sont masqués ; une barre de confirmation apparaît en bas. |
+| `nom`, `cp` | Recherche lancée automatiquement à l'ouverture (aucune ressaisie). |
+
+**Protocole `postMessage`** (le parent reçoit, l'iframe écoute) :
+
+```js
+// iframe → parent
+{ source: 'company-locator', type: 'locator:ready' }
+{ source: 'company-locator', type: 'locator:results', payload: { count, rows } }
+{ source: 'company-locator', type: 'locator:error',   payload: { message } }
+{ source: 'company-locator', type: 'locator:selected', payload: { siret, siren, nom, adresseComplete, latitude, longitude, … } }
+// parent → iframe
+{ source: 'tns-form', type: 'locator:search', payload: { nom, codePostal } }
+```
+
+Le bouton **« Utiliser cette entreprise »** envoie `locator:selected` : SIRET, SIREN, enseigne, adresse complète, code postal, commune, NAF, latitude/longitude, précision et source du géocodage. Rien n'est envoyé tant que le visiteur n'a pas cliqué.
+
+### Servir le formulaire et le localisateur ensemble
+
+Le mode intégré exige une origine `http(s)://` (modules ES). Le serveur local sait servir plusieurs dossiers et conserver le relais d'API :
+
+```bash
+STATIC_ROOT=.. node server.js --open --path assurance-tns-pro-v2-adw/
+# → http://localhost:8080/assurance-tns-pro-v2-adw/  (formulaire + localisateur)
+```
+
+`--path` choisit la page ouverte par `--open`. Sans `STATIC_ROOT`, le serveur sert uniquement ce dossier.
+
+Tests dédiés : `npm run test:embed` (parcours complet en mode intégré) et `tests/embed.test.mjs` (protocole `postMessage`).
 
 ---
 

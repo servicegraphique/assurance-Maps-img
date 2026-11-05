@@ -11,6 +11,12 @@
  * Port :        8080 par défaut, modifiable via la variable PORT.
  *               En cas de port occupé, les 9 ports suivants sont essayés.
  * Option :      --open  ouvre le navigateur au démarrage (utilisé par les lanceurs).
+ *               --path <chemin> page ouverte par --open (ex. assurance-tns-pro-v2-adw/).
+ * Racine :      STATIC_ROOT (ou --root <dossier>) change le dossier servi.
+ *               `STATIC_ROOT=.. node server.js` sert tout le dépôt, ce qui
+ *               permet au formulaire d'assurance d'intégrer le localisateur
+ *               en iframe tout en gardant le relais d'API local :
+ *               http://localhost:8080/assurance-tns-pro-v2-adw/
  * Jeton :       variable d'environnement MAPILLARY_TOKEN
  *               ou fichier server.config.json { "mapillaryToken": "MLY|…" }
  *
@@ -24,7 +30,22 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ROOT = __dirname;
+
+/** Racine servie : le dossier de l'application par défaut, surchargeable. */
+function resolveRoot() {
+  const flagIndex = process.argv.indexOf('--root');
+  const fromFlag = flagIndex > -1 ? process.argv[flagIndex + 1] : '';
+  const wanted = String(fromFlag || process.env.STATIC_ROOT || '').trim();
+  if (!wanted) return { root: __dirname, custom: false };
+  const resolved = path.resolve(__dirname, wanted);
+  try {
+    if (fs.statSync(resolved).isDirectory()) return { root: resolved, custom: resolved !== __dirname };
+  } catch { /* dossier absent : on retombe sur l'application */ }
+  console.error(`[serveur] Dossier introuvable : ${wanted} — service de l'application seule.`);
+  return { root: __dirname, custom: false };
+}
+
+const { root: ROOT, custom: CUSTOM_ROOT } = resolveRoot();
 const PORT = Number(process.env.PORT) || 8080;
 const HOST = process.env.HOST || '0.0.0.0';
 const MAPILLARY_GRAPH = 'https://graph.mapillary.com';
@@ -383,7 +404,11 @@ async function serveStatic(request, response, url) {
     }
   } catch {
     response.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
-    return response.end('<!doctype html><meta charset="utf-8"><h1>404</h1><p>Fichier introuvable.</p><p><a href="/">Retour à l\'application</a></p>');
+    return response.end(CUSTOM_ROOT
+      ? '<!doctype html><meta charset="utf-8"><h1>404</h1><p>Fichier introuvable.</p>'
+        + '<p><a href="/company-locator/">Localisateur d\'entreprises</a> · '
+        + '<a href="/assurance-tns-pro-v2-adw/">Formulaire d\'assurance</a></p>'
+      : '<!doctype html><meta charset="utf-8"><h1>404</h1><p>Fichier introuvable.</p><p><a href="/">Retour à l\'application</a></p>');
   }
 
   // Le jeton et la configuration serveur ne doivent jamais être servis.
@@ -473,22 +498,33 @@ async function openBrowser(url) {
 }
 
 const OPEN_BROWSER = process.argv.includes('--open') || process.env.CLF_OPEN === '1';
+/** Chemin ouvert par --open (utile quand la racine sert plusieurs dossiers). */
+const pathFlag = process.argv.indexOf('--path');
+const OPEN_PATH = pathFlag > -1
+  ? String(process.argv[pathFlag + 1] || '').replace(/^\/+/, '')
+  : '';
 const MAX_PORT_TRIES = 10;
 let attempt = 0;
 let activePort = PORT;
 
 server.on('listening', () => {
   const url = `http://localhost:${activePort}/`;
+  const appUrl = `${url}${OPEN_PATH}`;
   const tokenState = TOKEN ? 'chargé (proxy actif)' : 'absent (Panoramax reste disponible sans jeton)';
   console.log('');
   console.log('  Company Locator France — serveur local');
   console.log('  --------------------------------------');
-  console.log(`  Application : ${url}`);
+  console.log(`  Application : ${appUrl}`);
+  if (CUSTOM_ROOT) {
+    console.log(`  Racine      : ${ROOT}`);
+    console.log(`  Formulaire  : ${url}assurance-tns-pro-v2-adw/`);
+    console.log(`  Localisateur: ${url}company-locator/`);
+  }
   console.log(`  Santé       : ${url}api/health`);
   console.log(`  Jeton Mapillary : ${tokenState}`);
   console.log('  Arrêt : Ctrl + C');
   console.log('');
-  if (OPEN_BROWSER) openBrowser(url);
+  if (OPEN_BROWSER) openBrowser(appUrl);
 });
 
 server.on('error', (error) => {

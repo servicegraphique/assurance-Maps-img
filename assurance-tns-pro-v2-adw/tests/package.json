@@ -2,7 +2,7 @@
   "name": "assurance-tns-pro-v2-adw-tests",
   "version": "1.0.0",
   "private": true,
-  "description": "Tests du module « Localisation et identification de votre entreprise »",
+  "description": "Tests de l'étape « Localisez votre entreprise » (localisateur d'entreprises intégré)",
   "scripts": {
     "test": "node --test"
   },

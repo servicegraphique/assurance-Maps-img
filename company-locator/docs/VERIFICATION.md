@@ -11,8 +11,8 @@ Ce document distingue honnêtement **ce qui a été exécuté et vérifié** de 
 ### 1.1 Tests unitaires — `npm test`
 
 ```
-# tests 128
-# pass  128
+# tests 134
+# pass  134
 # fail  0
 ```
 
@@ -25,6 +25,7 @@ Ce document distingue honnêtement **ce qui a été exécuté et vérifié** de 
 | `tests/unit/export-storage.test.mjs` | CSV (BOM, `;`, CRLF, anti-injection de formule), 23 colonnes, GeoJSON EPSG:4326, export de fiche, paramètres, **historique opt-in**, favoris, photos sourcées, purge, indisponibilité du `localStorage` |
 | `tests/unit/images.test.mjs` | Détection du mode Mapillary (proxy / direct / aucun), Panoramax `place_position` + repli `bbox`, filtrage par rayon, tri par distance, dédoublonnage, normalisation des dates/licences, statut par fournisseur, photos complémentaires (source obligatoire), **vue de rue de la carte** (`streetPhotoView` : image, crédit, compteur borné, badge 360° vs photographie plate, refus d'URL non sûre), **cadrage orienté vers l'immeuble** (`bearingDeg`, `panoFrame` : panorama recadré face au bâtiment, décalage borné, centrage par défaut, photographie plate non recadrée) et **choix de la photographie** (`pickStreetPhotoIndex` : façade proche prioritaire, photo plate regardant ailleurs pénalisée, panorama recentrable) |
 | `tests/unit/streetview.test.mjs` | Vues immersives : URL Panoramax/Mapillary/Google, cap normalisé et borné, classement sphérique avant plat, disponibilité par source, **refus des coordonnées absentes** (`Number(null) === 0`), aucune clé dans les URL, durcissement du cadre |
+| `tests/embed.test.mjs` | **Mode intégré** (`?embed=1`) : lecture des paramètres `nom`/`cp`, charge utile transmise au formulaire, protocole `postMessage` (prêt, résultats, erreur, sélection), recherche demandée par le parent, messages d'une autre origine ignorés, inactivité hors mode intégré |
 | `tests/unit/transport.test.mjs` | Correspondance URL publique ↔ relais local pour les trois services, **refus des origines non déclarées**, comportement hors navigateur, propagation des erreurs HTTP métier |
 
 ### 1.2 Cascade CSS — `npm run test:css`
@@ -54,7 +55,20 @@ l'URL, adresse `http://localhost:8080/` indiquée. Vérifie aussi le chien de ga
 (module jamais exécuté, démarrage réussi, erreur déjà affichée non écrasée) et le
 cas du navigateur sans support des modules.
 
-### 1.4 Intégration DOM — `npm run test:dom`
+### 1.4 Intégration DOM du mode intégré — `npm run test:embed`
+
+```
+5/5 vérifications réussies.
+```
+
+`index.html` est ouvert avec `?embed=1&nom=Allianz&cp=75015` (comme depuis le
+formulaire d'assurance) : classe `is-embed` posée, recherche lancée
+automatiquement, messages `locator:ready` / `locator:results` reçus par un
+parent simulé, puis sélection d'un établissement et envoi de
+`locator:selected` (SIRET, adresse, GPS) après clic sur « Utiliser cette
+entreprise ».
+
+### 1.5 Intégration DOM — `npm run test:dom`
 
 ```
 55/55 vérifications réussies.
@@ -202,7 +216,7 @@ Configurer `server.config.json`, relancer, puis `node tests/live-smoke.mjs` : la
 
 | Domaine | Statut |
 |---|---|
-| Logique métier (recherche, normalisation, GPS, exports, stockage, images) | ✅ **128 tests unitaires exécutés et verts** |
+| Logique métier (recherche, normalisation, GPS, exports, stockage, images) | ✅ **134 tests unitaires exécutés et verts** |
 | Cascade CSS et éléments masqués | ✅ **16 vérifications exécutées et vertes** (test par mutation validé) |
 | Garde de démarrage (`file://`, chien de garde) | ✅ **14 vérifications exécutées et vertes** |
 | Interface et parcours complet | ✅ **52 vérifications DOM exécutées et vertes**, 0 erreur JS |

@@ -13,6 +13,7 @@
   <link rel="stylesheet" href="css/style.css">
   <link rel="stylesheet" href="css/map.css">
   <link rel="stylesheet" href="css/responsive.css">
+  <link rel="stylesheet" href="css/embed.css">
 </head>
 <body>
   <a class="skip-link" href="#champ-nom">Aller au formulaire de recherche</a>
@@ -258,6 +259,17 @@
         <!-- Fiche détaillée : rendue par js/ui.js -->
         <section class="card detail-card" id="detail-card" aria-labelledby="titre-fiche" hidden></section>
       </div>
+    </div>
+
+    <!-- ============ MODE INTÉGRÉ : confirmation au formulaire ============ -->
+    <div id="embed-bar" class="embed-bar" hidden>
+      <div class="embed-bar-text">
+        <strong id="embed-bar-title">Aucune entreprise sélectionnée</strong>
+        <span id="embed-bar-sub" class="embed-bar-sub">Choisissez votre établissement dans les résultats.</span>
+      </div>
+      <button type="button" id="btn-embed-select" class="btn btn-primary" disabled>
+        Utiliser cette entreprise
+      </button>
     </div>
   </main>
 

@@ -11,8 +11,7 @@
   <meta content="Webflow" name="generator">
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="fonts-global.css">
-  <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
-  <link rel="stylesheet" href="localisation.css">
+  <link rel="stylesheet" href="localisateur.css">
   
   
   
@@ -146,113 +145,46 @@
             <div data-form="step" class="etape-2 form-blobale">
               <div data-go-to="localisation" data-answer="code-postal" class="etape-content form-blobale">
                 <div class="titre-assurance-iard">Quelle est la société concernée par cette demande ?</div>
-                <p class="loc-company-hint">Renseignez l’adresse de l’établissement : elle servira à localiser votre entreprise et à afficher son bâtiment à l’étape suivante.</p>
-                <div class="coordonnees-societe"><input class="nom-societe w-input" maxlength="256" name="societe" data-name="societe" placeholder="Nom de la société" type="text" required=""><input class="adresse-societe w-input" maxlength="256" name="adresse" data-name="adresse" placeholder="Numéro et nom de rue" type="text" autocomplete="street-address"><input class="code-postale-webflow w-input" data-phone-autoformat="xxxxx" maxlength="256" data-min-character="5" name="code_postal" data-name="code_postal" placeholder="Code postal" type="tel" required=""><input class="ville-societe w-input" maxlength="256" name="ville" data-name="ville" placeholder="Ville" type="text" autocomplete="address-level2"></div>
+                <p class="loc-company-hint">Indiquez simplement le nom de votre société et son code postal : l’étape suivante retrouve votre établissement, son adresse exacte et sa position GPS.</p>
+                <div class="coordonnees-societe coordonnees-societe--simple"><input class="nom-societe w-input" maxlength="256" name="societe" data-name="societe" placeholder="Nom de la société" type="text" required=""><input class="code-postale-webflow w-input" data-phone-autoformat="xxxxx" maxlength="256" data-min-character="5" name="code_postal" data-name="code_postal" placeholder="Code postal" type="tel" required=""><input type="hidden" name="adresse" data-name="adresse" value=""><input type="hidden" name="ville" data-name="ville" value=""></div>
                 <div class="etape-bouton assurance-iard">
                   <a data-form="back-btn" href="#" class="bouton-precedent rc-pro w-button">Précédent</a>
                   <a data-form="next-btn" href="#" class="bouton-suivant rc-pro w-button">Suivant</a>
                 </div>
               </div>
             </div>
-            <div data-form="step" class="etape-2 form-blobale etape-localisation">
+            <div data-form="step" class="etape-2 form-blobale etape-localisateur">
               <div data-answer="localisation" data-go-to="societe" class="etape-content form-blobale" id="loc-section">
                 <div class="loc-head">
-                  <h2 class="loc-head__title">Localisation et identification de votre entreprise</h2>
-                  <p class="loc-head__text">Retrouvez l’adresse de vos locaux, placez votre entreprise sur la carte et identifiez votre bâtiment. Ces informations nous permettent de préparer une offre réellement adaptée à votre activité.</p>
+                  <h2 class="loc-head__title">Localisez votre entreprise</h2>
+                  <p class="loc-head__text">Nous recherchons votre société à partir du nom et du code postal saisis à l’étape précédente. Sélectionnez votre établissement : son adresse exacte et sa position GPS seront jointes à votre demande.</p>
                 </div>
-                <div class="loc-grid">
-                  <section class="loc-bloc" data-loc-bloc="localisation" aria-labelledby="loc-titre-localisation">
-                    <div class="loc-bloc__head">
-                      <span class="loc-bloc__num" aria-hidden="true">1</span>
-                      <h3 class="loc-bloc__title" id="loc-titre-localisation">Localisation</h3>
-                      <span class="loc-bloc__badge" data-loc-badge>À compléter</span>
-                    </div>
-                    <div class="loc-tabs" role="group" aria-label="Vue de la carte de localisation">
-                      <button type="button" class="loc-tab" data-loc-view="osm" aria-pressed="true">Plan OSM</button>
-                      <button type="button" class="loc-tab" data-loc-view="ign" aria-pressed="false">Plan IGN</button>
-                      <button type="button" class="loc-tab" data-loc-view="aerienne" aria-pressed="false">Photo aérienne</button>
-                      <button type="button" class="loc-tab" data-loc-view="rue" aria-pressed="false">Street View</button>
-                    </div>
-                    <div class="loc-media" data-loc-media>
-                      <div class="loc-map" data-loc-map="localisation" role="region" aria-label="Carte de localisation de l’entreprise"></div>
-                      <div class="loc-rue" data-loc-rue hidden>
-                        <img class="loc-rue__img" data-loc-rue-img alt="" loading="lazy">
-                        <span class="loc-rue__credit" data-loc-rue-credit></span>
-                        <span class="loc-rue__label" data-loc-rue-address></span>
-                        <button type="button" class="loc-rue__arrow loc-rue__arrow--prev" data-loc-rue-prev aria-label="Image de rue précédente" hidden>&#8249;</button>
-                        <button type="button" class="loc-rue__arrow loc-rue__arrow--next" data-loc-rue-next aria-label="Image de rue suivante" hidden>&#8250;</button>
-                        <a class="loc-rue__link" data-loc-rue-link target="_blank" rel="noopener nofollow" hidden>Ouvrir en 360&deg;</a>
-                      </div>
-                      <div class="loc-media__placeholder" data-loc-placeholder hidden>
-                        <strong data-loc-placeholder-title>Vue de votre entreprise</strong>
-                        <p data-loc-placeholder-text>Renseignez votre adresse à l’étape précédente pour afficher la carte.</p>
-                        <button type="button" class="loc-btn loc-btn--ghost" data-loc-view-aerial hidden>Voir la photo aérienne</button>
-                      </div>
-                      <div class="loc-media__loading" data-loc-loading hidden><span class="loc-spinner" aria-hidden="true"></span>Recherche de l’image…</div>
-                    </div>
-                    <p class="loc-credit" data-loc-credit></p>
-                    <div class="loc-infos">
-                      <p class="loc-infos__label" data-loc-address data-empty="1">Adresse non renseignée</p>
-                      <p class="loc-infos__coords" data-loc-coords></p>
-                      <p class="loc-infos__meta" data-loc-meta>Cliquez sur « Rechercher » ou directement sur la carte.</p>
-                    </div>
-                    <div class="loc-actions">
-                      <button type="button" class="loc-btn loc-btn--ghost" data-loc-search>Rechercher</button>
-                      <button type="button" class="loc-btn loc-btn--primary" data-loc-validate aria-pressed="false"><span class="loc-btn__check" aria-hidden="true">✓</span><span>Valider</span></button>
-                    </div>
-                    <p class="loc-status" data-loc-status role="status" aria-live="polite"></p>
-                  </section>
-                  <section class="loc-bloc" data-loc-bloc="batiment" aria-labelledby="loc-titre-batiment">
-                    <div class="loc-bloc__head">
-                      <span class="loc-bloc__num" aria-hidden="true">2</span>
-                      <h3 class="loc-bloc__title" id="loc-titre-batiment">Bâtiment</h3>
-                      <span class="loc-bloc__badge" data-loc-badge>À compléter</span>
-                    </div>
-                    <div class="loc-tabs" role="group" aria-label="Type de vue du bâtiment">
-                      <button type="button" class="loc-tab" data-loc-view="osm" aria-pressed="true">Plan OSM</button>
-                      <button type="button" class="loc-tab" data-loc-view="ign" aria-pressed="false">Plan IGN</button>
-                      <button type="button" class="loc-tab" data-loc-view="aerienne" aria-pressed="false">Photo aérienne</button>
-                      <button type="button" class="loc-tab" data-loc-view="rue" aria-pressed="false">Street View</button>
-                    </div>
-                    <div class="loc-media" data-loc-media>
-                      <div class="loc-map" data-loc-map="batiment" role="region" aria-label="Carte du bâtiment"></div>
-                      <div class="loc-rue" data-loc-rue hidden>
-                        <img class="loc-rue__img" data-loc-rue-img alt="" loading="lazy">
-                        <span class="loc-rue__credit" data-loc-rue-credit></span>
-                        <span class="loc-rue__label" data-loc-rue-address></span>
-                        <button type="button" class="loc-rue__arrow loc-rue__arrow--prev" data-loc-rue-prev aria-label="Image de rue précédente" hidden>&#8249;</button>
-                        <button type="button" class="loc-rue__arrow loc-rue__arrow--next" data-loc-rue-next aria-label="Image de rue suivante" hidden>&#8250;</button>
-                        <a class="loc-rue__link" data-loc-rue-link target="_blank" rel="noopener nofollow" hidden>Ouvrir en 360&deg;</a>
-                      </div>
-                      <div class="loc-media__placeholder" data-loc-placeholder hidden>
-                        <strong data-loc-placeholder-title>Vue du bâtiment</strong>
-                        <p data-loc-placeholder-text>Renseignez l’adresse pour afficher le bâtiment.</p>
-                        <button type="button" class="loc-btn loc-btn--ghost" data-loc-view-aerial hidden>Voir la photo aérienne</button>
-                      </div>
-                      <div class="loc-media__loading" data-loc-loading hidden><span class="loc-spinner" aria-hidden="true"></span>Recherche de l’image…</div>
-                    </div>
-                    <p class="loc-credit" data-loc-credit></p>
-                    <div class="loc-infos">
-                      <p class="loc-infos__label" data-loc-address data-empty="1">Adresse du bâtiment non renseignée</p>
-                      <p class="loc-infos__coords" data-loc-coords></p>
-                      <p class="loc-infos__meta" data-loc-meta>Cliquez sur « Rechercher » pour identifier le bâtiment.</p>
-                    </div>
-                    <div class="loc-actions">
-                      <button type="button" class="loc-btn loc-btn--ghost" data-loc-search>Rechercher</button>
-                      <button type="button" class="loc-btn loc-btn--primary" data-loc-validate aria-pressed="false"><span class="loc-btn__check" aria-hidden="true">✓</span><span>Valider</span></button>
-                    </div>
-                    <p class="loc-status" data-loc-status role="status" aria-live="polite"></p>
-                  </section>
+                <div class="loc-frame-wrap">
+                  <div class="loc-frame-loading" data-loc-loading><span class="loc-spinner" aria-hidden="true"></span>Chargement du localisateur…</div>
+                  <iframe class="loc-frame" id="loc-app" data-loc-app
+                          data-src="../company-locator/index.html?embed=1"
+                          title="Localisateur d’entreprises : recherche et position de votre société"
+                          loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
                 </div>
+                <div class="loc-fallback" data-loc-fallback hidden>
+                  <p class="loc-fallback__text" data-loc-fallback-text>Le localisateur n’a pas pu s’afficher dans la page.</p>
+                  <a class="loc-fallback__link" data-loc-fallback-link href="../company-locator/index.html" target="_blank" rel="noopener">Ouvrir le localisateur dans un nouvel onglet</a>
+                </div>
+                <div class="loc-recap" data-loc-recap hidden>
+                  <strong class="loc-recap__title" data-loc-recap-title>Entreprise sélectionnée</strong>
+                  <p class="loc-recap__line" data-loc-recap-address></p>
+                  <p class="loc-recap__meta" data-loc-recap-meta></p>
+                </div>
+                <p class="loc-status" data-loc-status role="status" aria-live="polite"></p>
                 <p class="loc-gate" data-loc-gate role="alert" hidden>
-                  <span data-loc-gate-text>Il reste à valider la localisation et le bâtiment.</span>
+                  <span data-loc-gate-text>Sélectionnez votre entreprise dans le localisateur pour continuer.</span>
                   <button type="button" class="loc-gate__skip" data-loc-skip>Je renseignerai ces informations plus tard</button>
                 </p>
                 <div class="etape-bouton assurance-iard">
                   <a data-form="back-btn" href="#" class="bouton-precedent rc-pro w-button">Précédent</a>
                   <a data-form="next-btn" href="#" class="bouton-suivant rc-pro w-button">Suivant</a>
                 </div>
-                <p class="loc-mention">Cartographie : OpenStreetMap, IGN et Esri · Adresses : Base Adresse Nationale (Etalab) et OpenStreetMap/Photon · Images de rue : Panoramax et Wikimedia Commons · Photo aérienne : Esri. Les informations saisies restent sur votre appareil jusqu’à l’envoi du formulaire.</p>
+                <p class="loc-mention">Localisateur d’entreprises : API officielle Recherche d’entreprises (DINUM), Base Adresse Nationale (Etalab), OpenStreetMap et IGN, Panoramax. Aucune clé d’API, aucun traceur publicitaire : les informations restent sur votre appareil jusqu’à l’envoi du formulaire.</p>
               </div>
             </div>
             <div data-form="step" class="etape-2 form-blobale">
@@ -425,10 +357,8 @@
   
   
   
-<script src="vendor/leaflet/leaflet.js" defer></script>
 <script src="script.js?v=3" defer></script>
-<script src="localisation-core.js" defer></script>
-<script src="localisation.js" defer></script>
+<script src="localisateur.js" defer></script>
 <script src="lead-handler.js" defer></script>
 <script src="verification-sms.js" defer></script>
 </body>
