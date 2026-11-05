@@ -69,6 +69,7 @@ define('Element', window.Element);
 define('Node', window.Node);
 define('Event', window.Event);
 define('Image', FakeImage);
+define('FormData', window.FormData);
 define('getComputedStyle', window.getComputedStyle.bind(window));
 define('requestAnimationFrame', (callback) => setTimeout(() => callback(Date.now()), 0));
 define('cancelAnimationFrame', (id) => clearTimeout(id));
@@ -260,6 +261,63 @@ check('Le code NAF est traduit en activité lisible', () => {
   assert.match(badge, /Supermarchés/, badge);
   assert.match($('#detail-card .info-grid').textContent, /SAS, société par actions simplifiée/);
 });
+/* --- Coordonnées de contact (saisie manuelle, stockage local) --- */
+
+check('L\'onglet Informations propose un bloc « Coordonnées de contact » explicite', () => {
+  const section = $('#contacts-section');
+  assert.ok(section, 'bloc présent dans le panneau Informations');
+  const text = section.textContent;
+  assert.match(text, /Coordonnées de contact/);
+  assert.match(text, /Non renseignées/);
+  assert.match(text, /ne publie pas les coordonnées de contact/);
+  assert.match(text, /seulement sur cet appareil|cet appareil/);
+  assert.ok(section.querySelector('.contact-empty'), 'état vide explicite');
+  assert.ok(section.querySelector('.contact-actions button'), 'action d\'ajout proposée');
+});
+
+click($('#contacts-section .contact-actions button'));
+await waitFor(() => $('#contact-telephone'), 'ouverture du formulaire de contact');
+$('#contact-telephone').value = '01 23 45 67 89';
+$('#contact-mobile').value = '+33 6 12 34 56 78';
+$('#contact-email').value = ' Contact@Exemple.FR ';
+$('#contact-contact').value = 'Marie Dupont — accueil';
+$('#contact-note').value = 'Standard 9h-17h';
+$('.contact-form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+await waitFor(() => $('#contacts-section .contact-list'), 'enregistrement des coordonnées');
+
+check('Les coordonnées saisies sont normalisées, liées et marquées « Saisie manuelle »', () => {
+  const items = $$('#contacts-section .contact-list .contact-item');
+  assert.equal(items.length, 4, 'fixe, mobile, e-mail et contact');
+  const hrefs = $$('#contacts-section .contact-link').map((a) => a.getAttribute('href'));
+  assert.ok(hrefs.includes('tel:+33123456789'), hrefs.join(', '));
+  assert.ok(hrefs.includes('tel:+33612345678'), hrefs.join(', '));
+  assert.ok(hrefs.includes('mailto:contact@exemple.fr'), hrefs.join(', '));
+  const text = $('#contacts-section').textContent;
+  assert.match(text, /01 23 45 67 89/);
+  assert.match(text, /06 12 34 56 78/);
+  assert.match(text, /Marie Dupont — accueil/);
+  assert.match(text, /Saisie manuelle/);
+  assert.match(text, /Standard 9h-17h/);
+  assert.match(text, /stockée uniquement sur cet appareil/);
+  assert.ok(window.localStorage.getItem('clf:contacts').includes('73282932000017'), 'stocké par SIRET');
+});
+
+click($('#contacts-section .contact-actions button'));
+await waitFor(() => $('#contact-telephone'), 'réouverture du formulaire');
+$('#contact-telephone').value = '06 12 34 56 78'; // un mobile dans le champ « fixe »
+$('.contact-form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+await waitFor(() => $('#contacts-section .field-error'), 'message de validation');
+
+check('Une incohérence fixe/mobile est bloquée avec un message clair', () => {
+  const error = $('#contacts-section .field-error').textContent;
+  assert.match(error, /mobile/i);
+  assert.ok($('#contacts-section .field.has-error'), 'champ signalé');
+  assert.equal($('#contact-telephone').getAttribute('aria-invalid'), 'true');
+  // La saisie erronée n'écrase pas les coordonnées déjà enregistrées.
+  assert.match(window.localStorage.getItem('clf:contacts'), /0123456789/);
+  click($('#contacts-section .contact-form-actions .btn-outline'));
+});
+
 check('Les coordonnées GPS réelles sont affichées avec leur précision', () => {
   assert.match($('#gps-section .gps-coords').textContent, /^48\.841230, 2\.300120$/);
   assert.match($('#gps-section').textContent, /Niveau adresse/);
@@ -487,6 +545,10 @@ click($('#detail-card .detail-head .icon-btn'));
 await waitFor(() => $('#detail-card .detail-head .icon-btn').classList.contains('is-active'), 'enregistrement de la fiche');
 check('La fiche peut être enregistrée localement', () => {
   assert.ok(window.localStorage.getItem('clf:favorites').includes('73282932000017'));
+});
+check('Les coordonnées de contact survivent au re-rendu de la fiche', () => {
+  assert.match($('#contacts-section').textContent, /Marie Dupont — accueil/);
+  assert.match($('#contacts-section').textContent, /01 23 45 67 89/);
 });
 
 /* ---------------------------- Paramètres --------------------------- */

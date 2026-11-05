@@ -85,6 +85,18 @@ test('Charge utile transmise au formulaire : identité, adresse et GPS', () => {
   assert.equal(noPosition.latitude, null);
   assert.equal(noPosition.longitude, null);
   assert.equal(selectionPayload(null).siret, '');
+
+  // Coordonnées de contact : reprises telles quelles, jamais inventées.
+  const withContacts = selectionPayload({
+    ...FICHE,
+    contacts: { telephone: '0123456789', mobile: '0612345678', email: 'contact@exemple.fr', contact: 'Marie Dupont' },
+  });
+  assert.equal(withContacts.telephone, '0123456789');
+  assert.equal(withContacts.mobile, '0612345678');
+  assert.equal(withContacts.email, 'contact@exemple.fr');
+  assert.equal(withContacts.contact, 'Marie Dupont');
+  assert.equal(payload.telephone, '');
+  assert.equal(payload.email, '');
 });
 
 test('Résumé des résultats : champs utiles seulement', () => {

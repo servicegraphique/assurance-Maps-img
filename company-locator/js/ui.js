@@ -17,6 +17,7 @@ import { precisionLabel } from './geocoding.js';
 import { addressText } from './export.js';
 import { osmLink, ignTimeLink } from './map.js';
 import { frameAttributes, describeImmersion } from './streetview.js';
+import { CONTACT_FIELDS, CONTACT_LIMITS, contactChannels } from './contact.js';
 
 /* ==================================================================== */
 /* 1. Notifications                                                      */
@@ -334,9 +335,13 @@ export function renderDetail(container, fiche, handlers) {
   geo.append(geoGrid);
   info.append(geo);
 
+  const contactsSection = el('div', { class: 'info-section', id: 'contacts-section' });
+  info.append(contactsSection);
+
   const gpsSection = el('div', { class: 'info-section', id: 'gps-section' });
   info.append(gpsSection);
   detailRefs.gpsSection = gpsSection;
+  detailRefs.contactsSection = contactsSection;
   detailRefs.osmSlot = osmSlot;
   detailRefs.panels = panels;
   detailRefs.container = container;
@@ -849,6 +854,170 @@ export function renderComplementaryPhotos(siret, photos, handlers) {
     el('button', { type: 'submit', class: 'btn btn-sm btn-outline' }, [icon('plus'), 'Ajouter cette photographie vérifiée']),
   ]));
   host.append(form);
+}
+
+/* ------------------- 4b bis. Coordonnées de contact ----------------- */
+
+/**
+ * Bloc « Coordonnées de contact » du panneau Informations.
+ *
+ * L'API Recherche d'entreprises ne publie ni téléphone, ni e-mail, ni contact :
+ * ces données sont saisies pour l'établissement affiché, stockées sur
+ * l'appareil, et toujours présentées comme telles (aucune valeur inventée).
+ */
+export function renderContacts(fiche, handlers = {}) {
+  const host = detailRefs.contactsSection;
+  if (!host) return;
+  clear(host);
+
+  const etablissement = fiche?.row?.etablissement;
+  const contact = fiche?.contacts || null;
+  const editing = Boolean(fiche?.contactsEditing);
+  const errors = fiche?.contactErrors || {};
+  const channels = contactChannels(contact);
+
+  const head = el('div', { class: 'contact-head' }, [
+    sectionTitle('Coordonnées de contact', 'phone'),
+    el('span', {
+      class: `badge ${channels.length ? 'badge-neutral' : 'badge-warning'}`,
+      text: channels.length ? 'Saisie manuelle' : 'Non renseignées',
+    }),
+  ]);
+  host.append(head);
+
+  host.append(el('p', {
+    class: 'contact-note',
+    text: 'L’API officielle Recherche d’entreprises ne publie pas les coordonnées de contact. '
+      + 'Celles-ci sont saisies par vos soins pour cet établissement : elles restent sur cet appareil '
+      + 'et sont reprises dans les exports et dans la fiche transmise au formulaire.',
+  }));
+
+  if (channels.length) {
+    const list = el('ul', { class: 'contact-list' });
+    channels.forEach((channel) => {
+      const valueNode = el('div', { class: 'contact-value' });
+      if (channel.href) {
+        valueNode.append(el('a', {
+          class: 'contact-link',
+          href: channel.href,
+          text: channel.display,
+          title: channel.key === 'email' ? `Écrire à ${channel.display}` : `Appeler ${channel.display}`,
+        }));
+      } else {
+        valueNode.append(el('span', { text: channel.display }));
+      }
+      valueNode.append(copyButton(channel.value, channel.label, handlers.onCopyValue));
+      list.append(el('li', { class: 'contact-item' }, [
+        el('span', { class: 'contact-icon' }, [icon(channel.icon)]),
+        el('div', { class: 'contact-text' }, [
+          el('p', { class: 'contact-label', text: channel.label }),
+          valueNode,
+        ]),
+      ]));
+    });
+    host.append(list);
+
+    if (contact?.note) host.append(el('p', { class: 'contact-note contact-note--small', text: contact.note }));
+    if (contact?.updatedAt) {
+      host.append(el('p', {
+        class: 'contact-meta',
+        text: `Dernière mise à jour : ${formatDateTimeFr(contact.updatedAt)} · stockée uniquement sur cet appareil`,
+      }));
+    }
+  } else if (!editing) {
+    host.append(el('p', {
+      class: 'contact-empty',
+      text: 'Aucune coordonnée pour cet établissement. Ajoutez le téléphone, l’e-mail ou la personne à joindre '
+        + 'si vous les connaissez : elles seront conservées localement et exportées avec la fiche.',
+    }));
+  }
+
+  if (!editing) {
+    host.append(el('div', { class: 'contact-actions' }, [
+      el('button', {
+        type: 'button',
+        class: `btn btn-sm ${channels.length ? 'btn-outline' : 'btn-primary'}`,
+        onclick: () => handlers.onEditContacts?.(),
+      }, [icon(channels.length ? 'settings' : 'plus'), channels.length ? 'Modifier les coordonnées' : 'Ajouter des coordonnées']),
+    ]));
+    return;
+  }
+
+  /* --- Formulaire de saisie ------------------------------------------ */
+  const form = el('form', {
+    class: 'contact-form',
+    novalidate: true,
+    onsubmit: (event) => {
+      event.preventDefault();
+      const data = new FormData(event.target);
+      handlers.onSaveContacts?.({
+        telephone: String(data.get('telephone') || ''),
+        mobile: String(data.get('mobile') || ''),
+        email: String(data.get('email') || ''),
+        contact: String(data.get('contact') || ''),
+        note: String(data.get('note') || ''),
+      });
+    },
+  });
+
+  CONTACT_FIELDS.forEach((field) => {
+    const inputId = `contact-${field.key}`;
+    const message = errors[field.key];
+    form.append(el('div', { class: `field${message ? ' has-error' : ''}` }, [
+      el('label', { for: inputId }, [
+        icon(field.icon),
+        field.label,
+      ]),
+      el('input', {
+        type: field.type,
+        id: inputId,
+        name: field.key,
+        maxlength: CONTACT_LIMITS[field.key],
+        placeholder: field.placeholder,
+        autocomplete: field.key === 'email' ? 'email' : (field.key === 'contact' ? 'name' : 'tel'),
+        value: (contact && contact[field.key]) || '',
+        'aria-invalid': message ? 'true' : null,
+        'aria-describedby': message ? `${inputId}-error` : `${inputId}-help`,
+      }),
+      el('p', {
+        class: message ? 'field-error' : 'field-help',
+        id: message ? `${inputId}-error` : `${inputId}-help`,
+        text: message || field.help,
+      }),
+    ]));
+  });
+
+  form.append(el('div', { class: 'field field-wide' }, [
+    el('label', { for: 'contact-note' }, 'Note (facultatif)'),
+    el('input', {
+      type: 'text',
+      id: 'contact-note',
+      name: 'note',
+      maxlength: CONTACT_LIMITS.note,
+      placeholder: 'Horaires, standard saturé, contact préférentiel…',
+      value: (contact && contact.note) || '',
+    }),
+  ]));
+
+  const buttons = el('div', { class: 'contact-form-actions' }, [
+    el('button', { type: 'submit', class: 'btn btn-sm btn-primary' }, [icon('check'), 'Enregistrer']),
+    el('button', {
+      type: 'button', class: 'btn btn-sm btn-outline', onclick: () => handlers.onCancelContacts?.(),
+    }, ['Annuler']),
+  ]);
+  if (contact) {
+    buttons.append(el('button', {
+      type: 'button',
+      class: 'btn btn-sm btn-danger contact-remove',
+      onclick: () => handlers.onRemoveContacts?.(),
+      title: 'Supprimer les coordonnées enregistrées pour cet établissement',
+    }, [icon('trash'), 'Supprimer']));
+  }
+  form.append(buttons);
+  host.append(form);
+
+  if (!etablissement) return;
+  form.dataset.siret = etablissement.siret;
 }
 
 /* ----------------------- 4c. Établissements ------------------------- */

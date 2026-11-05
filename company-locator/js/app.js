@@ -22,8 +22,9 @@ import { detectProxy, transportLabel, proxyState } from './transport.js';
 import * as exporter from './export.js';
 import * as ui from './ui.js';
 import {
-  settings, history, favorites, storageInfo, purgeCache, purgeUserData,
+  settings, history, favorites, userContacts, storageInfo, purgeCache, purgeUserData,
 } from './storage.js';
+import { validateContactInput, hasContact, buildContactRecord } from './contact.js';
 import { createEmbedBridge, selectionPayload } from './embed.js';
 
 /* ==================================================================== */
@@ -308,6 +309,10 @@ async function selectEtablissement(siret, options = {}) {
     position: state.positions.get(siret) || null,
     positionLoading: !state.positions.has(siret),
     positionError: null,
+    // Coordonnées de contact : saisies par l'utilisateur, stockées localement.
+    contacts: userContacts.get(siret),
+    contactsEditing: false,
+    contactErrors: {},
     activeTab: current.autoOpenAerial ? 'images' : 'fiche',
     isFavorite: favorites.has(siret),
     apiUrl: `https://recherche-entreprises.api.gouv.fr/search?q=${row.etablissement.siret}`,
@@ -319,6 +324,7 @@ async function selectEtablissement(siret, options = {}) {
   state.etabs = { loading: false, list: null, error: null, notice: null };
 
   ui.renderDetail(dom['detail-card'], state.fiche, detailHandlers());
+  ui.renderContacts(state.fiche, detailHandlers());
   ui.renderGpsSection(state.fiche, detailHandlers());
   ui.setActiveTab(dom['detail-card'], state.fiche.activeTab);
   ui.renderComplementaryPhotos(siret, images.getComplementaryPhotos(siret), detailHandlers());
@@ -526,6 +532,54 @@ function detailHandlers() {
 
   return {
     onCopyValue: (value, label) => copy(value, label || 'la valeur'),
+
+    /* Coordonnées de contact (téléphone fixe/mobile, e-mail, contact).
+       L'API officielle ne les publie pas : elles sont saisies et stockées
+       localement, puis reprises dans les exports et le formulaire. */
+    onEditContacts: () => {
+      state.fiche.contactsEditing = true;
+      state.fiche.contactErrors = {};
+      ui.renderContacts(state.fiche, detailHandlers());
+    },
+    onCancelContacts: () => {
+      state.fiche.contactsEditing = false;
+      state.fiche.contactErrors = {};
+      ui.renderContacts(state.fiche, detailHandlers());
+    },
+    onSaveContacts: (payload = {}) => {
+      const siret = state.fiche?.row?.etablissement?.siret;
+      if (!siret) return;
+      const { ok, errors, value } = validateContactInput(payload);
+      if (!ok) {
+        state.fiche.contactErrors = errors;
+        ui.renderContacts(state.fiche, detailHandlers());
+        ui.toast('Vérifiez les coordonnées saisies.', 'error');
+        return;
+      }
+      if (!hasContact(value)) {
+        state.fiche.contactErrors = {};
+        ui.toast('Renseignez au moins un téléphone, un e-mail ou un contact.', 'error');
+        ui.renderContacts(state.fiche, detailHandlers());
+        return;
+      }
+      const record = buildContactRecord(payload, { note: payload.note });
+      userContacts.save(siret, record);
+      state.fiche.contacts = record;
+      state.fiche.contactsEditing = false;
+      state.fiche.contactErrors = {};
+      ui.renderContacts(state.fiche, detailHandlers());
+      ui.toast('Coordonnées enregistrées sur cet appareil.', 'success');
+    },
+    onRemoveContacts: () => {
+      const siret = state.fiche?.row?.etablissement?.siret;
+      if (!siret) return;
+      userContacts.remove(siret);
+      state.fiche.contacts = null;
+      state.fiche.contactsEditing = false;
+      state.fiche.contactErrors = {};
+      ui.renderContacts(state.fiche, detailHandlers());
+      ui.toast('Coordonnées supprimées.', 'info');
+    },
     onCopyAddress: () => copy(exporter.addressText(state.fiche.row.etablissement), 'l\'adresse'),
     onCopySiret: () => copy(state.fiche.row.etablissement.siret, 'le SIRET'),
     onCopyGps: () => copy(exporter.gpsText(state.fiche.position), 'les coordonnées GPS'),
@@ -534,6 +588,7 @@ function detailHandlers() {
         etablissement: state.fiche.row.etablissement,
         entreprise: state.fiche.row.entreprise,
         position: state.fiche.position,
+        contacts: state.fiche.contacts,
       });
       ui.toast(`Fiche exportée : ${filename}`, 'success');
     },
@@ -555,6 +610,7 @@ function detailHandlers() {
       }
       ui.renderDetail(dom['detail-card'], state.fiche, detailHandlers());
       ui.setActiveTab(dom['detail-card'], state.fiche.activeTab);
+      ui.renderContacts(state.fiche, detailHandlers());
       ui.renderGpsSection(state.fiche, detailHandlers());
       refreshCurrentTab();
     },

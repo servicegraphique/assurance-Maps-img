@@ -1,6 +1,6 @@
 # Rapport de vérification
 
-**Projet** : Company Locator France · **Version** : 1.0.0 · **Date** : 4 novembre 2026
+**Projet** : Company Locator France · **Version** : 1.0.0 · **Date** : 5 novembre 2026
 
 Ce document distingue honnêtement **ce qui a été exécuté et vérifié** de **ce qui doit être confirmé sur une machine disposant d'un accès Internet non restreint**.
 
@@ -11,8 +11,8 @@ Ce document distingue honnêtement **ce qui a été exécuté et vérifié** de 
 ### 1.1 Tests unitaires — `npm test`
 
 ```
-# tests 134
-# pass  134
+# tests 140
+# pass  140
 # fail  0
 ```
 
@@ -25,13 +25,14 @@ Ce document distingue honnêtement **ce qui a été exécuté et vérifié** de 
 | `tests/unit/export-storage.test.mjs` | CSV (BOM, `;`, CRLF, anti-injection de formule), 23 colonnes, GeoJSON EPSG:4326, export de fiche, paramètres, **historique opt-in**, favoris, photos sourcées, purge, indisponibilité du `localStorage` |
 | `tests/unit/images.test.mjs` | Détection du mode Mapillary (proxy / direct / aucun), Panoramax `place_position` + repli `bbox`, filtrage par rayon, tri par distance, dédoublonnage, normalisation des dates/licences, statut par fournisseur, photos complémentaires (source obligatoire), **vue de rue de la carte** (`streetPhotoView` : image, crédit, compteur borné, badge 360° vs photographie plate, refus d'URL non sûre), **cadrage orienté vers l'immeuble** (`bearingDeg`, `panoFrame` : panorama recadré face au bâtiment, décalage borné, centrage par défaut, photographie plate non recadrée) et **choix de la photographie** (`pickStreetPhotoIndex` : façade proche prioritaire, photo plate regardant ailleurs pénalisée, panorama recentrable) |
 | `tests/unit/streetview.test.mjs` | Vues immersives : URL Panoramax/Mapillary/Google, cap normalisé et borné, classement sphérique avant plat, disponibilité par source, **refus des coordonnées absentes** (`Number(null) === 0`), aucune clé dans les URL, durcissement du cadre |
+| `tests/unit/contact.test.mjs` | **Coordonnées de contact saisies** (l'API officielle ne les publie pas) : normalisation des numéros français (`+33`, `0033`, séparateurs), refus des numéros incomplets, détection fixe/mobile (`0[1-589]` vs `0[67]`), affichage `01 23 45 67 89`, liens `tel:+33…`/`mailto:` jamais fabriqués depuis une saisie invalide, validation croisée (un mobile dans le champ fixe est signalé), enregistrement local par SIRET, purge, présence dans l'export de fiche et dans la charge utile transmise au formulaire |
 | `tests/embed.test.mjs` | **Mode intégré** (`?embed=1`) : lecture des paramètres `nom`/`cp`, charge utile transmise au formulaire, protocole `postMessage` (prêt, résultats, erreur, sélection), recherche demandée par le parent, messages d'une autre origine ignorés, inactivité hors mode intégré |
 | `tests/unit/transport.test.mjs` | Correspondance URL publique ↔ relais local pour les trois services, **refus des origines non déclarées**, comportement hors navigateur, propagation des erreurs HTTP métier |
 
 ### 1.2 Cascade CSS — `npm run test:css`
 
 ```
-16/16 vérifications CSS réussies.
+17/17 vérifications CSS réussies.
 ```
 
 Ce suite rejoue la **cascade réelle** de la propriété `display` (origine auteur
@@ -71,7 +72,7 @@ entreprise ».
 ### 1.5 Intégration DOM — `npm run test:dom`
 
 ```
-55/55 vérifications réussies.
+59/59 vérifications réussies.
 Parcours complet validé sans erreur.
 ```
 
@@ -87,6 +88,7 @@ Parcours couvert :
 6. Ouverture de fiche : SIREN et SIRET **formatés et valides**, NAF `47.11D — Supermarchés`, forme juridique, région **Île-de-France**, département **75 — Paris**.
 7. Coordonnées GPS affichées avec **niveau de précision** et **score de géocodage**.
 8. Lien OpenStreetMap correctement construit.
+8 bis. **Coordonnées de contact** : bloc présent dans l'onglet Informations avec la mention « Non renseignées » et l'avertissement sur l'API officielle ; saisie (fixe, mobile, e-mail, personne à joindre, note) → numéros normalisés et formatés, liens `tel:`/`mailto:` corrects, badge « Saisie manuelle », enregistrement local par SIRET ; un mobile saisi dans le champ « fixe » est **refusé avec un message** et n'écrase pas la valeur enregistrée ; les coordonnées **survivent au re-rendu** de la fiche (bascule favori).
 9. Lien profond `#/etablissement/{siret}` restauré au chargement.
 10. Onglet Images : **couche BD ORTHO® réellement ajoutée** à la carte aérienne, **3 photographies de rue** sourcées et datées.
 11. Lightbox : ouverture, compteur `1/3`, navigation `2/3`, fermeture par `Échap`.
@@ -149,6 +151,7 @@ Exécutées contre `node server.js` en fonctionnement :
 | **Google Maps Embed gratuit** | `developers.google.com/maps/documentation/embed/quickstart` et `usage-and-billing` | Gratuit, **illimité**, sans limite QPS ni journalière — **mais** projet Cloud avec facturation activée obligatoire |
 | Viewer Panoramax trop lourd à embarquer | `registry.npmjs.org/@panoramax/web-viewer` | 2,8 Mo + MapLibre + Lit → **iframe officiel retenu** plutôt qu'un nouveau framework |
 | Licence Leaflet 1.9.4 | `registry.npmjs.org/leaflet/1.9.4` | BSD-2-Clause, fichier `LICENSE` inclus |
+| **Aucune coordonnée de contact dans l'API** | Schéma officiel `search-api` (`app/models/unite_legale.py`, `formatters/etablissements.py`) et réponses réelles du service | Ni téléphone, ni e-mail, ni personne à joindre : le champ `contact` du service porte l'**adresse de contact** de l'INSEE, pas un numéro. D'où la saisie manuelle, stockée localement et signalée comme telle |
 
 ---
 
@@ -216,10 +219,10 @@ Configurer `server.config.json`, relancer, puis `node tests/live-smoke.mjs` : la
 
 | Domaine | Statut |
 |---|---|
-| Logique métier (recherche, normalisation, GPS, exports, stockage, images) | ✅ **134 tests unitaires exécutés et verts** |
-| Cascade CSS et éléments masqués | ✅ **16 vérifications exécutées et vertes** (test par mutation validé) |
+| Logique métier (recherche, normalisation, GPS, exports, stockage, images, contacts) | ✅ **140 tests unitaires exécutés et verts** |
+| Cascade CSS et éléments masqués | ✅ **17 vérifications exécutées et vertes** (test par mutation validé) |
 | Garde de démarrage (`file://`, chien de garde) | ✅ **14 vérifications exécutées et vertes** |
-| Interface et parcours complet | ✅ **52 vérifications DOM exécutées et vertes**, 0 erreur JS |
+| Interface et parcours complet | ✅ **59 vérifications DOM exécutées et vertes**, 0 erreur JS |
 | Serveur local, ressources, sécurité | ✅ **vérifié par requêtes HTTP réelles** |
 | Contrats des API (URL, paramètres, champs, quotas, licences) | ✅ **vérifiés sur les sources officielles** |
 | Appels réseau réels aux API publiques | ⏳ **à exécuter sur votre poste** — `node tests/live-smoke.mjs` |

@@ -97,7 +97,7 @@
   var HIDDEN_FIELDS = [
     'loc_entreprise', 'loc_siret', 'loc_siren', 'loc_adresse', 'loc_code_postal',
     'loc_commune', 'loc_latitude', 'loc_longitude', 'loc_precision', 'loc_source',
-    'loc_naf', 'loc_page'
+    'loc_naf', 'loc_page', 'loc_telephone', 'loc_mobile', 'loc_email', 'loc_contact'
   ];
 
   function ensureHiddenFields() {
@@ -131,7 +131,11 @@
       loc_precision: data.precision || '',
       loc_source: data.source || '',
       loc_naf: data.naf || '',
-      loc_page: data.pageUrl || ''
+      loc_page: data.pageUrl || '',
+      loc_telephone: data.telephone || '',
+      loc_mobile: data.mobile || '',
+      loc_email: data.email || '',
+      loc_contact: data.contact || ''
     };
     Object.keys(values).forEach(function (name) { setFieldValue(name, values[name]); });
 
@@ -458,8 +462,19 @@
       loc_precision: selection.precision || '',
       loc_source: selection.source || '',
       loc_naf: selection.naf || '',
-      loc_page: selection.pageUrl || ''
+      loc_page: selection.pageUrl || '',
+      loc_telephone: selection.telephone || '',
+      loc_mobile: selection.mobile || '',
+      loc_email: selection.email || '',
+      loc_contact: selection.contact || ''
     };
+  }
+
+  /* « 0123456789 » → « 01 23 45 67 89 » pour le récapitulatif lisible. */
+  function formatPhone(value) {
+    var digits = String(value == null ? '' : value).replace(/\D/g, '');
+    if (digits.length === 10) return digits.replace(/(\d{2})(?=\d)/g, '$1 ');
+    return trim(value);
   }
 
   function getRecap() {
@@ -472,6 +487,12 @@
       lines.push('GPS : ' + selection.latitude + ', ' + selection.longitude
         + (selection.precision ? ' (' + selection.precision + ')' : ''));
     }
+    var contactBits = [];
+    if (selection.telephone) contactBits.push('tél. ' + formatPhone(selection.telephone));
+    if (selection.mobile) contactBits.push('mobile ' + formatPhone(selection.mobile));
+    if (selection.email) contactBits.push(selection.email);
+    if (selection.contact) contactBits.push(selection.contact);
+    if (contactBits.length) lines.push('Contact : ' + contactBits.join(' · '));
     return lines.filter(Boolean).join('\n');
   }
 

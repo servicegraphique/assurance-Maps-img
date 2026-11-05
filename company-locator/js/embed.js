@@ -47,14 +47,15 @@ export function readEmbedParams(search) {
 
 /**
  * Charge utile transmise au formulaire : tout ce dont l'étape suivante a
- * besoin pour l'offre (identité légale, adresse, GPS) — jamais de données
- * inventées : les champs absents restent vides.
+ * besoin pour l'offre (identité légale, adresse, GPS, coordonnées de contact
+ * saisies) — jamais de données inventées : les champs absents restent vides.
  */
 export function selectionPayload(fiche) {
   const row = (fiche && fiche.row) || {};
   const etablissement = row.etablissement || {};
   const entreprise = row.entreprise || {};
   const position = (fiche && fiche.position) || null;
+  const contacts = (fiche && fiche.contacts) || null;
   const siret = String(etablissement.siret || '').trim();
   const siren = String(entreprise.siren || etablissement.siren || (siret ? siret.slice(0, 9) : '')).trim();
   const nom = etablissement.nomAffiche
@@ -81,6 +82,11 @@ export function selectionPayload(fiche) {
     longitude: position && Number.isFinite(Number(position.lon)) ? Number(position.lon) : null,
     precision: (position && position.precision) || '',
     source: (position && position.source) || '',
+    // Coordonnées de contact : saisies dans le localisateur, jamais officielles.
+    telephone: (contacts && contacts.telephone) || '',
+    mobile: (contacts && contacts.mobile) || '',
+    email: (contacts && contacts.email) || '',
+    contact: (contacts && contacts.contact) || '',
     pageUrl: siret ? `https://annuaire-entreprises.data.gouv.fr/etablissement/${siret}` : '',
   };
 }
