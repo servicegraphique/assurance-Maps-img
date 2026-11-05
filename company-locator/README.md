@@ -58,6 +58,7 @@ Application web locale, en HTML5 / CSS3 / JavaScript Vanilla + Leaflet. Aucun fr
 
 - **Quatre vues commutables à tout moment** : **Plan OSM**, **Plan IGN**, **Photo aérienne** (BD ORTHO® IGN) et **Street View**.
 - **Street View** n'est pas un fond de tuiles : l'image de rue de l'établissement consulté remplace la carte (plein cadre, adresse en pastille, crédit + licence, flèches pour parcourir les photographies de la rue, lien « Ouvrir la photo »). Les photos viennent de **Panoramax** (puis Mapillary), sans clé ni iframe ; à défaut, un message explicite s'affiche. La vue suit l'établissement sélectionné et se ferme d'un clic sur un fond de plan ou sur « Fermer la vue ».
+- **Cadrage orienté vers l'immeuble.** Les panoramas 360° ne sont jamais affichés « à plat » : l'application calcule le relèvement photographie → bâtiment, recadre la bande correspondante (≈ 128° de champ) dans la meilleure définition disponible, et choisit d'abord la photographie qui montre réellement la façade. La vue ressemble ainsi à une vue de rue classique, pas à un panorama écrasé.
 - Marqueurs différenciés : siège (turquoise), établissement (bleu), fermé (gris), sélectionné (orange).
 - Popup d'information au clic, centrage et zoom automatiques sur le bâtiment, cercle pointillé d'incertitude quand la position est imprécise, plein écran, échelle, copie des coordonnées, attributions permanentes.
 

@@ -205,6 +205,8 @@ Sans jeton configuré, **aucune requête Mapillary n'est émise** : l'interface 
 ## 6 bis. Vues immersives « Street View » 360°
 
 > **4e bouton de la carte.** Le bouton `data-baselayer="street"` réutilise exactement les mêmes photographies (`fetchStreetPhotos()` → Panoramax/Mapillary) mais les affiche **sans iframe** : image plein cadre superposée à la carte, crédit, compteur et lien vers la fiche source. Aucune requête n'est faite avant le clic sur le bouton.
+>
+> **Cadrage.** `pickStreetPhotoIndex()` choisit la photographie qui montre le mieux l'immeuble (la plus proche, en pénalisant les photographies plates qui regardent ailleurs), puis `streetPhotoView()` renvoie `pano` = `panoFrame()` : `{ widthPct: 280, leftPct }` calculé à partir du relèvement `photographie → bâtiment` et de `view:azimuth` / `compass_angle`. Le panorama est donc recadré face à la façade (≈ 128° de champ) au lieu d'être affiché en entier et distordu. Aucun recadrage n'est appliqué aux photographies plates.
 
 Trois sources, construites dans `js/streetview.js`. **Aucune n'est chargée avant un clic utilisateur.**
 

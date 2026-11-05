@@ -1018,9 +1018,24 @@ export function renderMapStreet(container, { status = 'loading', photo = null, m
   if (ready) {
     if (img) {
       const url = safeUrl(photo.url) || '';
+      const fallback = safeUrl(photo.thumbUrl) || '';
+      // Une URL haute définition peut échouer (instance lente) : on retombe
+      // une seule fois sur la vignette, jamais sur une image d'illustration.
+      img.onerror = () => {
+        if (fallback && img.getAttribute('src') !== fallback) img.setAttribute('src', fallback);
+      };
       if (img.getAttribute('src') !== url) img.setAttribute('src', url);
       img.alt = photo.alt || '';
       img.classList.toggle('is-pano', Boolean(photo.isPano));
+      if (photo.pano) {
+        // Cadrage du panorama : largeur et décalage calculés pour placer
+        // l'immeuble au centre de la vue.
+        img.style.setProperty('--pano-width', `${photo.pano.widthPct}%`);
+        img.style.setProperty('--pano-left', `${photo.pano.leftPct}%`);
+      } else {
+        img.style.removeProperty('--pano-width');
+        img.style.removeProperty('--pano-left');
+      }
       img.hidden = false;
     }
     if (badge) badge.textContent = photo.badge || 'Street View';
@@ -1047,6 +1062,9 @@ export function renderMapStreet(container, { status = 'loading', photo = null, m
       img.hidden = true;
       img.removeAttribute('src');
       img.classList.remove('is-pano');
+      img.style.removeProperty('--pano-width');
+      img.style.removeProperty('--pano-left');
+      img.onerror = null;
       img.alt = '';
     }
     if (badge) badge.textContent = 'Street View';

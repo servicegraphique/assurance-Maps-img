@@ -43,6 +43,8 @@ function normalizePanoramaxFeature(feature, origin) {
   const props = feature.properties || {};
   const assets = feature.assets || {};
   const thumb = assets.thumb?.href || assets.sd?.href || assets.hd?.href || '';
+  // Le recadrage d'un panorama (≈ 36 % de la largeur) exige la meilleure
+  // définition disponible, sinon la façade devient floue.
   const full = assets.hd?.href || assets.sd?.href || thumb;
   if (!thumb) return null;
 
@@ -367,7 +369,82 @@ export function removeComplementaryPhoto(siret, id) {
  *   credit: string, pageUrl: string, counter: string, alt: string,
  *   index: number, total: number}}
  */
-export function streetPhotoView(photo, { index = 0, total = 1 } = {}) {
+/**
+ * Largeur du panorama affichée dans la vue de rue, en pourcentage de la zone
+ * visible. 280 % ⇒ environ 128° de champ : le cadrage d'une vue de rue
+ * classique, sans l'aspect « fisheye » d'un 360° affiché en entier.
+ */
+export const PANO_ZOOM = 2.8;
+
+/** Relèvement (azimut) en degrés de A vers B, 0 = nord, sens horaire. */
+export function bearingDeg(latA, lonA, latB, lonB) {
+  const rad = (deg) => (Number(deg) * Math.PI) / 180;
+  const phi1 = rad(latA);
+  const phi2 = rad(latB);
+  const dLon = rad(lonB - lonA);
+  const y = Math.sin(dLon) * Math.cos(phi2);
+  const x = Math.cos(phi1) * Math.sin(phi2) - Math.sin(phi1) * Math.cos(phi2) * Math.cos(dLon);
+  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+}
+
+/**
+ * Cadrage d'un panorama équirectangulaire : la colonne centrale de l'image
+ * correspond au relèvement de prise de vue (`direction`, `view:azimuth`).
+ * On décale l'image pour placer le bâtiment au centre de la vue.
+ *
+ * @returns {{widthPct: number, leftPct: number}|null}
+ */
+export function panoFrame(photo, target) {
+  if (!photo?.isPano) return null;
+  const azimuth = Number.isFinite(photo.direction) ? ((photo.direction % 360) + 360) % 360 : null;
+
+  let x = 0.5; // fraction horizontale de l'image à placer au centre
+  if (Number.isFinite(photo.lat) && Number.isFinite(photo.lon)
+    && Number.isFinite(target?.lat) && Number.isFinite(target?.lon)) {
+    const bearing = bearingDeg(photo.lat, photo.lon, target.lat, target.lon);
+    const delta = azimuth == null ? 0 : ((bearing - azimuth + 540) % 360) - 180;
+    x = 0.5 + delta / 360;
+    if (x < 0) x += 1;
+    if (x > 1) x -= 1;
+  }
+
+  // On garde la fenêtre à l'intérieur de l'image : jamais de bande vide,
+  // même quand le bâtiment est à la limite du tour d'horizon.
+  const half = 0.5 / PANO_ZOOM;
+  const clamped = Math.min(1 - half, Math.max(half, x));
+  return {
+    widthPct: PANO_ZOOM * 100,
+    leftPct: (0.5 - clamped * PANO_ZOOM) * 100,
+  };
+}
+
+/**
+ * Indice de la photographie qui montre le mieux l'immeuble : la plus proche,
+ * en pénalisant les photographies plates qui regardent ailleurs.
+ */
+export function pickStreetPhotoIndex(photos, target) {
+  if (!Array.isArray(photos) || !photos.length) return 0;
+  const hasTarget = Number.isFinite(target?.lat) && Number.isFinite(target?.lon);
+  let best = 0;
+  let bestScore = Infinity;
+  photos.forEach((photo, position) => {
+    let score = Number.isFinite(photo?.distanceM) ? photo.distanceM : 400;
+    if (hasTarget && !photo?.isPano && Number.isFinite(photo?.direction)
+      && Number.isFinite(photo?.lat) && Number.isFinite(photo?.lon)) {
+      const bearing = bearingDeg(photo.lat, photo.lon, target.lat, target.lon);
+      const delta = Math.abs(((bearing - photo.direction + 540) % 360) - 180);
+      if (delta > 60) score += (delta - 60) * 2;
+    }
+    if (score < bestScore) { bestScore = score; best = position; }
+  });
+  return best;
+}
+
+/**
+ * @param {object} photo photographies normalisée
+ * @param {{index?: number, total?: number, target?: {lat: number, lon: number}}} options
+ */
+export function streetPhotoView(photo, { index = 0, total = 1, target = null } = {}) {
   if (!photo || typeof photo !== 'object') return null;
   const url = safeUrl(photo.fullUrl || photo.thumbUrl);
   if (!url) return null;
@@ -391,6 +468,7 @@ export function streetPhotoView(photo, { index = 0, total = 1 } = {}) {
     pageUrl: safeUrl(photo.pageUrl) || '',
     counter: `Image ${position + 1} sur ${count}`,
     alt: `Vue de rue — ${photo.providerName || 'source ouverte'}${captured ? `, ${captured}` : ''}`,
+    pano: panoFrame(photo, target),
     index: position,
     total: count,
   };
