@@ -287,7 +287,7 @@ test('toLeadFields expose les champs loc_ attendus', () => {
     query: FR_QUERY,
     address: Core.sanitizeAddress(Core.parseGeopf(geopfPayload())[0]),
     validated: true,
-    mode: 'facade'
+    mode: 'ign'
   };
   state.batiment = {
     query: FR_QUERY,
@@ -312,7 +312,8 @@ test('toLeadFields expose les champs loc_ attendus', () => {
   assert.equal(fields.loc_validee, 'oui');
   assert.equal(fields.loc_batiment_photo, 'https://exemple/photo.jpg');
   assert.equal(fields.loc_batiment_photo_source, 'Panoramax');
-  assert.equal(fields.loc_batiment_vue, 'facade');
+  assert.equal(fields.loc_batiment_vue, 'rue');
+  assert.equal(fields.loc_vue, 'plan ign');
   assert.equal(fields.loc_batiment_validee, 'oui');
   assert.match(fields.loc_batiment_vue_aerienne, /bboxSR=4326/);
   assert.match(Core.toRecap(state), /Bâtiment - photo : Panoramax/);
@@ -331,8 +332,12 @@ test('la vue aérienne est le mode d’affichage par défaut du bâtiment', () =
   const state = Core.createState();
   assert.equal(state.batiment.mode, 'aerienne');
   assert.equal(Core.sanitizeState({}).batiment.mode, 'aerienne');
-  const facade = Core.sanitizeState({ batiment: { mode: 'facade' } });
-  assert.equal(facade.batiment.mode, 'facade');
+  // Ancienne valeur enregistrée : « facade » devient la vue « rue ».
+  const legacy = Core.sanitizeState({ batiment: { mode: 'facade' } });
+  assert.equal(legacy.batiment.mode, 'rue');
+  const street = Core.sanitizeState({ localisation: { mode: 'rue' }, batiment: { mode: 'ign' } });
+  assert.equal(street.localisation.mode, 'rue');
+  assert.equal(street.batiment.mode, 'ign');
 });
 
 test('sanitizeState écarte les coordonnées invalides', () => {

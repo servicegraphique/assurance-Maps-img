@@ -167,7 +167,30 @@
                       <h3 class="loc-bloc__title" id="loc-titre-localisation">Localisation</h3>
                       <span class="loc-bloc__badge" data-loc-badge>À compléter</span>
                     </div>
-                    <div class="loc-map" data-loc-map="localisation" role="region" aria-label="Carte de localisation de l’entreprise"></div>
+                    <div class="loc-tabs" role="group" aria-label="Vue de la carte de localisation">
+                      <button type="button" class="loc-tab" data-loc-view="osm" aria-pressed="true">Plan OSM</button>
+                      <button type="button" class="loc-tab" data-loc-view="ign" aria-pressed="false">Plan IGN</button>
+                      <button type="button" class="loc-tab" data-loc-view="aerienne" aria-pressed="false">Photo aérienne</button>
+                      <button type="button" class="loc-tab" data-loc-view="rue" aria-pressed="false">Street View</button>
+                    </div>
+                    <div class="loc-media" data-loc-media>
+                      <div class="loc-map" data-loc-map="localisation" role="region" aria-label="Carte de localisation de l’entreprise"></div>
+                      <div class="loc-rue" data-loc-rue hidden>
+                        <img class="loc-rue__img" data-loc-rue-img alt="" loading="lazy">
+                        <span class="loc-rue__credit" data-loc-rue-credit></span>
+                        <span class="loc-rue__label" data-loc-rue-address></span>
+                        <button type="button" class="loc-rue__arrow loc-rue__arrow--prev" data-loc-rue-prev aria-label="Image de rue précédente" hidden>&#8249;</button>
+                        <button type="button" class="loc-rue__arrow loc-rue__arrow--next" data-loc-rue-next aria-label="Image de rue suivante" hidden>&#8250;</button>
+                        <a class="loc-rue__link" data-loc-rue-link target="_blank" rel="noopener nofollow" hidden>Ouvrir en 360&deg;</a>
+                      </div>
+                      <div class="loc-media__placeholder" data-loc-placeholder hidden>
+                        <strong data-loc-placeholder-title>Vue de votre entreprise</strong>
+                        <p data-loc-placeholder-text>Renseignez votre adresse à l’étape précédente pour afficher la carte.</p>
+                        <button type="button" class="loc-btn loc-btn--ghost" data-loc-view-aerial hidden>Voir la photo aérienne</button>
+                      </div>
+                      <div class="loc-media__loading" data-loc-loading hidden><span class="loc-spinner" aria-hidden="true"></span>Recherche de l’image…</div>
+                    </div>
+                    <p class="loc-credit" data-loc-credit></p>
                     <div class="loc-infos">
                       <p class="loc-infos__label" data-loc-address data-empty="1">Adresse non renseignée</p>
                       <p class="loc-infos__coords" data-loc-coords></p>
@@ -186,21 +209,29 @@
                       <span class="loc-bloc__badge" data-loc-badge>À compléter</span>
                     </div>
                     <div class="loc-tabs" role="group" aria-label="Type de vue du bâtiment">
-                      <button type="button" class="loc-tab" data-loc-view="aerienne" aria-pressed="true">Vue aérienne</button>
-                      <button type="button" class="loc-tab" data-loc-view="facade" aria-pressed="false">Photo extérieure</button>
+                      <button type="button" class="loc-tab" data-loc-view="osm" aria-pressed="true">Plan OSM</button>
+                      <button type="button" class="loc-tab" data-loc-view="ign" aria-pressed="false">Plan IGN</button>
+                      <button type="button" class="loc-tab" data-loc-view="aerienne" aria-pressed="false">Photo aérienne</button>
+                      <button type="button" class="loc-tab" data-loc-view="rue" aria-pressed="false">Street View</button>
                     </div>
                     <div class="loc-media" data-loc-media>
-                      <img data-loc-photo alt="" hidden>
-                      <div class="loc-map" data-loc-map="batiment" role="region" aria-label="Vue aérienne du bâtiment" hidden></div>
-                      <div class="loc-media__placeholder" data-loc-photo-empty>
-                        <strong>Vue aérienne du bâtiment</strong>
-                        <p data-loc-photo-empty-text>Renseignez l’adresse pour afficher le bâtiment et sa photo extérieure.</p>
-                        <button type="button" class="loc-btn loc-btn--ghost" data-loc-view-aerial hidden>Voir la vue aérienne</button>
+                      <div class="loc-map" data-loc-map="batiment" role="region" aria-label="Carte du bâtiment"></div>
+                      <div class="loc-rue" data-loc-rue hidden>
+                        <img class="loc-rue__img" data-loc-rue-img alt="" loading="lazy">
+                        <span class="loc-rue__credit" data-loc-rue-credit></span>
+                        <span class="loc-rue__label" data-loc-rue-address></span>
+                        <button type="button" class="loc-rue__arrow loc-rue__arrow--prev" data-loc-rue-prev aria-label="Image de rue précédente" hidden>&#8249;</button>
+                        <button type="button" class="loc-rue__arrow loc-rue__arrow--next" data-loc-rue-next aria-label="Image de rue suivante" hidden>&#8250;</button>
+                        <a class="loc-rue__link" data-loc-rue-link target="_blank" rel="noopener nofollow" hidden>Ouvrir en 360&deg;</a>
                       </div>
-                      <div class="loc-media__loading" data-loc-photo-loading hidden><span class="loc-spinner" aria-hidden="true"></span>Recherche de la photographie…</div>
+                      <div class="loc-media__placeholder" data-loc-placeholder hidden>
+                        <strong data-loc-placeholder-title>Vue du bâtiment</strong>
+                        <p data-loc-placeholder-text>Renseignez l’adresse pour afficher le bâtiment.</p>
+                        <button type="button" class="loc-btn loc-btn--ghost" data-loc-view-aerial hidden>Voir la photo aérienne</button>
+                      </div>
+                      <div class="loc-media__loading" data-loc-loading hidden><span class="loc-spinner" aria-hidden="true"></span>Recherche de l’image…</div>
                     </div>
                     <p class="loc-credit" data-loc-credit></p>
-                    <button type="button" class="loc-btn loc-btn--link" data-loc-photo-next hidden>Voir une autre photo</button>
                     <div class="loc-infos">
                       <p class="loc-infos__label" data-loc-address data-empty="1">Adresse du bâtiment non renseignée</p>
                       <p class="loc-infos__coords" data-loc-coords></p>
@@ -221,7 +252,7 @@
                   <a data-form="back-btn" href="#" class="bouton-precedent rc-pro w-button">Précédent</a>
                   <a data-form="next-btn" href="#" class="bouton-suivant rc-pro w-button">Suivant</a>
                 </div>
-                <p class="loc-mention">Cartographie : Esri et OpenStreetMap · Adresses : Base Adresse Nationale (Etalab) et OpenStreetMap/Photon · Photographies : Panoramax et Wikimedia Commons · Vue aérienne : Esri. Les informations saisies restent sur votre appareil jusqu’à l’envoi du formulaire.</p>
+                <p class="loc-mention">Cartographie : OpenStreetMap, IGN et Esri · Adresses : Base Adresse Nationale (Etalab) et OpenStreetMap/Photon · Images de rue : Panoramax et Wikimedia Commons · Photo aérienne : Esri. Les informations saisies restent sur votre appareil jusqu’à l’envoi du formulaire.</p>
               </div>
             </div>
             <div data-form="step" class="etape-2 form-blobale">

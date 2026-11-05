@@ -539,15 +539,37 @@
     countryCode: 'FR'
   };
 
-  function emptyBlock() {
+  /* Vues proposées par les boutons de chacun des deux blocs :
+   * plan OSM, plan IGN, photo aérienne et « Street View » (image de rue). */
+  var VIEWS = ['osm', 'ign', 'aerienne', 'rue'];
+  var VIEW_MODE_DEFAULT = { localisation: 'osm', batiment: 'aerienne' };
+  var VIEW_LABELS = {
+    osm: 'plan osm',
+    ign: 'plan ign',
+    aerienne: 'vue aerienne',
+    rue: 'rue'
+  };
+
+  /* Normalise une vue : « facade » (ancienne valeur) devient « rue ». */
+  function normalizeView(view, fallback) {
+    if (view === 'facade') return 'rue';
+    if (VIEWS.indexOf(view) !== -1) return view;
+    return fallback || 'osm';
+  }
+
+  function viewLabel(view) {
+    return VIEW_LABELS[normalizeView(view)] || VIEW_LABELS.osm;
+  }
+
+  function emptyBlock(mode) {
     return {
       query: Object.assign({}, DEFAULT_QUERY),
       address: null,
       photo: null,
       photos: [],
-      /* La vue aérienne est affichée par défaut : elle montre toujours le
-         bâtiment, même quand aucune photographie extérieure n'existe. */
-      mode: 'aerienne',
+      /* Vue affichée par défaut : plan OSM pour la localisation, photo
+         aérienne pour le bâtiment (elle montre toujours les locaux). */
+      mode: normalizeView(mode, 'osm'),
       validated: false,
       updatedAt: ''
     };
@@ -556,8 +578,8 @@
   function createState() {
     return {
       version: STATE_VERSION,
-      localisation: emptyBlock(),
-      batiment: emptyBlock()
+      localisation: emptyBlock(VIEW_MODE_DEFAULT.localisation),
+      batiment: emptyBlock(VIEW_MODE_DEFAULT.batiment)
     };
   }
 
@@ -603,8 +625,8 @@
     };
   }
 
-  function sanitizeBlock(block) {
-    var base = emptyBlock();
+  function sanitizeBlock(block, fallbackView) {
+    var base = emptyBlock(fallbackView || 'osm');
     if (!block || typeof block !== 'object') return base;
     var query = block.query && typeof block.query === 'object' ? block.query : {};
     Object.keys(DEFAULT_QUERY).forEach(function (key) {
@@ -612,7 +634,7 @@
     });
     base.address = sanitizeAddress(block.address);
     base.photo = sanitizePhoto(block.photo);
-    base.mode = block.mode === 'facade' ? 'facade' : 'aerienne';
+    base.mode = normalizeView(block.mode, fallbackView || 'osm');
     base.validated = block.validated === true && !!base.address;
     base.updatedAt = String(block.updatedAt || '');
     return base;
@@ -621,8 +643,8 @@
   function sanitizeState(state) {
     var base = createState();
     if (!state || typeof state !== 'object') return base;
-    base.localisation = sanitizeBlock(state.localisation);
-    base.batiment = sanitizeBlock(state.batiment);
+    base.localisation = sanitizeBlock(state.localisation, VIEW_MODE_DEFAULT.localisation);
+    base.batiment = sanitizeBlock(state.batiment, VIEW_MODE_DEFAULT.batiment);
     return base;
   }
 
@@ -675,7 +697,8 @@
     fields.loc_batiment_photo_auteur = photo ? photo.credit : '';
     fields.loc_batiment_photo_date = photo ? photo.datetime : '';
     fields.loc_batiment_photo_lien = photo ? (photo.viewerUrl || '') : '';
-    fields.loc_batiment_vue = safe.batiment.mode === 'aerienne' ? 'vue aerienne' : 'facade';
+    fields.loc_vue = viewLabel(safe.localisation.mode);
+    fields.loc_batiment_vue = viewLabel(safe.batiment.mode);
     fields.loc_batiment_vue_aerienne = safe.batiment.address
       ? buildAerialImageUrl(safe.batiment.address.lat, safe.batiment.address.lon)
       : '';

@@ -16,7 +16,8 @@
 
 | Élément | Comportement |
 | --- | --- |
-| Carte interactive | Leaflet embarqué (fond Esri World Street Map, repli OpenStreetMap France), marqueur déplaçable, clic sur la carte pour repositionner |
+| Carte interactive | Leaflet embarqué, marqueur déplaçable, clic sur la carte pour repositionner |
+| **4 boutons de vue** | `Plan OSM` (par défaut), `Plan IGN`, `Photo aérienne`, `Street View` (image de rue) |
 | Adresse + GPS | Libellé de l'adresse, latitude/longitude à 6 décimales, précision et source |
 | `Rechercher` | Ouvre la modale de recherche (entreprise, rue, code postal, ville, pays) |
 | `Valider` | Enregistre le bloc, l'écrit dans les champs du formulaire et le stocke localement |
@@ -25,15 +26,16 @@
 
 | Élément | Comportement |
 | --- | --- |
-| **Vue aérienne (par défaut)** | Carte Esri World Imagery zoom 19 centrée sur le bâtiment : c'est l'image affichée d'emblée, elle montre toujours les locaux |
-| Photo extérieure | Onglet « Photo extérieure » : photo de rue **Panoramax** (imagerie ouverte, France/Europe), sinon **Wikimedia Commons** géolocalisé |
+| **4 boutons de vue** | `Plan OSM`, `Plan IGN`, **`Photo aérienne` (par défaut)**, `Street View` |
+| Photo aérienne | Carte Esri World Imagery zoom 19 centrée sur le bâtiment : l'image affichée d'emblée |
+| Street View | Image de rue plein cadre (Panoramax, sinon Wikimedia Commons) avec libellé d'adresse, crédit, flèches pour parcourir les images et lien « Ouvrir en 360° » |
 | Adresse + GPS | Même principe que le bloc 1, avec sa propre recherche indépendante |
-| `Rechercher` / `Valider` | Modale indépendante ; validation enregistre la vue choisie (aérienne ou photo extérieure) |
+| `Rechercher` / `Valider` | Modale indépendante ; validation enregistre la vue choisie |
 
-L'image du bloc est donc une **vue aérienne ou extérieure réelle du bâtiment**
-(jamais une illustration). Quand une photo extérieure existe, elle est proposée
-dans l'onglet dédié et signalée dans le message de statut ; sinon la vue
-aérienne reste affichée et **le bloc est validable en l'état**.
+L'image du bloc est donc une **vue réelle du bâtiment** (plan, photo aérienne ou
+image de rue), jamais une illustration. Sans image de rue disponible, l'onglet
+`Street View` affiche un message explicite et **le bloc reste validable** en
+plan ou en photo aérienne.
 
 ### Modales
 
@@ -68,9 +70,9 @@ Dès que l'étape de localisation s'affiche, le module :
 
 1. recopie ces valeurs dans les deux modales (`company`, `street`, `postcode`,
    `city`) ;
-2. si la rue, le code postal et la ville sont renseignés, lance **une seule
-   recherche automatique** et remplit les deux blocs (adresse, GPS, bâtiment en
-   vue aérienne, photo extérieure si disponible) ;
+2. si la rue, le code postal et la ville sont renseignés, lance **une seule**
+   recherche automatique et remplit les deux blocs (adresse, GPS, bâtiment en
+   photo aérienne, image de rue si disponible) ;
 3. laisse l'utilisateur ajuster le repère puis cliquer sur `Valider`.
 
 Si l'adresse est incomplète ou introuvable, aucune erreur bloquante : un message
@@ -84,11 +86,13 @@ fois par adresse et **n'écrase jamais** une adresse déjà validée. Le champ
 
 | Usage | Service | Clé |
 | --- | --- | --- |
-| Carte rue | Esri World Street Map via Leaflet (repli automatique : OpenStreetMap France) | non |
+| Plan OSM | OpenStreetMap France (`tile.openstreetmap.fr`) via Leaflet | non |
+| Plan IGN | WMTS Géoplateforme — `GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2` (`data.geopf.fr`) | non |
+| Repli des plans | Esri World Street Map (si un plan ne répond pas) | non |
 | Géocodage France | Base Adresse Nationale — `data.geopf.fr/geocodage` (Etalab / IGN) | non |
 | Géocodage Europe | Photon (`photon.komoot.io`, données OpenStreetMap) | non |
 | Géocodage inverse | Géoplateforme puis Photon | non |
-| Photos de rue | Panoramax (fédération d'instances ouvertes) | non |
+| Photos de rue (vue « Street View ») | Panoramax (fédération d'instances ouvertes) | non |
 | Photos de bâtiments | Wikimedia Commons (API `geosearch`) | non |
 | Vue aérienne | Esri World Imagery (tuiles publiques) | non |
 
@@ -107,7 +111,7 @@ Les attributions légales sont affichées dans la carte (Leaflet) et sous la pho
 | `vendor/leaflet/` | Leaflet 1.9.4 embarqué (BSD-2-Clause, `LICENSE` fourni) — aucun CDN requis |
 | `index.html` | Étape ajoutée + chaînage `code-postal → localisation → societe`, liens CSS et scripts |
 | `lead-handler.js` | Fusion des champs `loc_*` dans le lead et ajout du récapitulatif |
-| `tests/` | 44 tests (`node --test`), dont 16 tests DOM jsdom avec réseau simulé |
+| `tests/` | 45 tests (`node --test`), dont 17 tests DOM jsdom avec réseau simulé |
 
 ---
 
@@ -119,9 +123,18 @@ en plus des champs géocodés :
 Ajoutés à l'objet `data` envoyé au CRM et à Google Sheets (préfixe `loc_`) :
 `loc_adresse`, `loc_rue`, `loc_code_postal`, `loc_ville`, `loc_pays`,
 `loc_pays_code`, `loc_latitude`, `loc_longitude`, `loc_precision`, `loc_source`,
-`loc_validee`, `loc_batiment_*` (adresse, GPS, `photo`, `photo_vignette`,
-`photo_source`, `photo_licence`, `photo_auteur`, `photo_date`, `photo_lien`,
-`vue`, `vue_aerienne`, `validee`).
+`loc_vue`, `loc_validee`, `loc_batiment_*` (adresse, GPS, `photo`,
+`photo_vignette`, `photo_source`, `photo_licence`, `photo_auteur`, `photo_date`,
+`photo_lien`, `vue`, `vue_aerienne`, `validee`).
+
+`loc_vue` et `loc_batiment_vue` enregistrent la vue validée :
+
+| Vue choisie | Valeur transmise |
+| --- | --- |
+| Plan OSM | `plan osm` |
+| Plan IGN | `plan ign` |
+| Photo aérienne | `vue aerienne` |
+| Street View | `rue` |
 
 Un récapitulatif lisible est également ajouté à `autre_info_fj` (colonne
 « enjeu » du Google Sheet) :
@@ -204,54 +217,54 @@ window.LOCALISATION_CONFIG = {
     aerialExport: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export'
   },
   tiles: {
-    street: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
-    streetAttribution: 'Fond de carte &copy; Esri, HERE, Garmin',
-    streetFallback: 'https://tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png',
-    streetFallbackAttribution: '&copy; OpenStreetMap France',
+    osm: 'https://tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png',
+    osmAttribution: '&copy; OpenStreetMap France',
+    ign: 'https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/png&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}',
+    ignAttribution: 'Plan IGN &copy; IGN – Géoplateforme',
     aerial: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-    aerialAttribution: 'Imagerie &copy; Esri'
+    aerialAttribution: 'Photo aérienne &copy; Esri, Maxar, Earthstar Geographics',
+    // Repli commun (plans) si les tuiles échouent
+    street: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+    streetAttribution: 'Fond de carte &copy; Esri, HERE, Garmin'
   }
 };
 ```
 
-> **Important — fond de carte** : le serveur public `tile.openstreetmap.org`
-> n'est **pas** utilisé par défaut. Il renvoie des tuiles « 403 Access blocked »
-> aux applications qui ne respectent pas sa politique d'usage (c'était le cas
-> en test, y compris en ouvrant simplement `index.html` en local).
+> **Important — fonds de carte et « Street View »** : le serveur public
+> `tile.openstreetmap.org` n'est **pas** utilisé (il renvoie des tuiles
+> « 403 Access blocked » aux applications hors politique d'usage, y compris en
+> ouvrant `index.html` en local).
 >
-> Le fond de carte par défaut est **Esri World Street Map** (couverture
-> européenne, sans clé, attribution affichée). Si les tuiles Esri échouent
-> (proxy, réseau, blocage), le module bascule automatiquement sur
-> **OpenStreetMap France** (`tile.openstreetmap.fr`) après trois tuiles en
-> erreur ; si tout échoue, un message discret « Fond de carte indisponible »
-> apparaît et l'adresse + les coordonnées GPS restent exploitables.
+> Les quatre vues reposent sur des services sans clé :
 >
-> Pour un trafic important ou des exigences de licence, remplacez
-> `tiles.street` par votre fournisseur habituel (IGN/Géoplateforme, MapTiler,
-> Stadia, Thunderforest…) et mettez `streetFallback: ''` si vous ne voulez
-> aucun autre appel. Aucun autre réglage n'est nécessaire : le marqueur, le
-> géocodage et les photos continuent de fonctionner.
+> | Vue | Fond | Attribution |
+> | --- | --- | --- |
+> | Plan OSM | `tile.openstreetmap.fr/osmfr` | © OpenStreetMap France |
+> | Plan IGN | WMTS `data.geopf.fr` — `GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2` | © IGN – Géoplateforme |
+> | Photo aérienne | Esri World Imagery | © Esri, Maxar, Earthstar Geographics |
+> | Street View | Panoramax (API `api.panoramax.xyz`), sinon Wikimedia Commons | © contributeurs Panoramax – CC BY-SA 4.0 |
 >
-> Utilitaire de contrôle : `LocalisationEntreprise.getTileProviders()` renvoie
-> les fournisseurs réellement utilisés, dans l'ordre de repli.
-
----
-
-## 7. Données personnelles et consentement
-
-- Aucune donnée n'est envoyée à un géocodeur avant que l'utilisateur ne clique
-  sur `Lancer la recherche` ; la saisie est alors transmise à
-  `data.geopf.fr` / `photon.komoot.io` (adresse), à `api.panoramax.xyz` et
-  `commons.wikimedia.org` (coordonnées du point) et à `arcgisonline.com`
-  (tuiles).
-- Les adresses validées sont conservées dans `localStorage` (clé
-  `cpro_loc_entreprise_v1`) pour ne pas perdre la saisie, puis purgées 15 s
-  après l'envoi du formulaire. Mettez `persist: false` pour désactiver
-  totalement ce stockage.
-- Le traitement reste couvert par la base légale « exécution de la demande »
-  du formulaire ; la mention de sources et de conservation locale est affichée
-  sous l'étape. À faire relire par le DPO avec la politique de confidentialité
-  existante.
+> Si les tuiles d'un plan échouent (proxy, réseau, extension), le module bascule
+> après trois erreurs sur **Esri World Street Map** ; si tout échoue, un message
+> discret « Fond de carte indisponible » apparaît et l'adresse, les coordonnées
+> GPS et l'image de rue restent exploitables.
+>
+> **Street View n'utilise pas Google** : Google Street View exige une clé API
+> payante et interdit la récupération d'images, ce qui est incompatible avec un
+> module sans clé. L'image de rue provient de **Panoramax** (panoramas 360°
+> ouverts, France/Europe), complétée par les photos géolocalisées de Wikimedia
+> Commons ; le lien « Ouvrir en 360° » ouvre le panorama interactif sur
+> `api.panoramax.xyz`. Pour élargir la couverture, un fournisseur sous contrat
+> (Mapillary avec jeton, Google Street View Static API, Mapbox) peut être branché
+> dans `localisation.js` sans toucher au formulaire.
+>
+> Pour un trafic important ou des exigences de licence, remplacez `tiles.osm`,
+> `tiles.ign`, `tiles.aerial` ou `tiles.street` par vos fournisseurs et mettez
+> `street: ''` si vous ne voulez aucun repli. Aucun autre réglage n'est
+> nécessaire : marqueur, géocodage et images continuent de fonctionner.
+>
+> Utilitaire de contrôle : `LocalisationEntreprise.getTileProviders()` (chaîne de
+> repli du plan OSM) et `LocalisationEntreprise.getView('localisation'|'batiment')`.
 
 ---
 
@@ -274,9 +287,12 @@ window.LOCALISATION_CONFIG = {
    façades. Le repli « vue aérienne » garantit une image pour chaque adresse.
    Le fond de carte « rue » repose sur Esri (aucune clé) : pour un volume élevé,
    préférez un fournisseur sous contrat via `tiles.street`.
-2. **Pas de Street View / clé Google** : choix assumé (aucun coût, aucune clé).
-   Le module est isolé : un provider Google Maps pourrait être ajouté dans
-   `localisation.js` sans toucher au reste du formulaire.
+2. **« Street View » sans Google** : l'image de rue vient de Panoramax et de
+   Wikimedia Commons, jamais de Google Street View (clé payante, récupération
+   d'images interdite par les conditions d'utilisation). La couverture est dense
+   en ville en France, plus inégale en Europe : sans image, un message explicite
+   s'affiche et le bloc reste validable en plan ou en photo aérienne. Un
+   fournisseur sous contrat peut être ajouté dans `localisation.js`.
 3. **Adresses très récentes ou lieux-dits** : la BAN est la référence française,
    mais renvoie parfois la commune. Le repère reste déplaçable et le clic sur la
    carte relance un géocodage inverse.
@@ -301,11 +317,12 @@ npm test --prefix tests
   analyse BAN/Photon/Panoramax/Commons, validité des codes postaux européens,
   géocodage inverse, sérialisation, champs de lead, vue aérienne par défaut,
   branchement HTML.
-- `tests/localisation-ui.test.js` — 16 tests jsdom (réseau simulé) : ouverture
+- `tests/localisation-ui.test.js` — 17 tests jsdom (réseau simulé) : ouverture
   des modales, blocage des saisies invalides, sélection d'adresse, validation,
-  garde du bouton Suivant, vue aérienne par défaut + photo extérieure, stockage
-  local, gestion des pannes réseau, préremplissage depuis l'étape « société »,
-  déclenchement automatique à l'affichage de l'étape.
+  garde du bouton Suivant, quatre vues des deux blocs, image de rue et son
+  crédit, repli aérien sans photo, stockage local, gestion des pannes réseau,
+  préremplissage depuis l'étape « société », déclenchement automatique à
+  l'affichage de l'étape.
 
 Aucun test ne contacte Internet : les réponses des fournisseurs sont simulées.
 
@@ -321,9 +338,10 @@ Aucun test ne contacte Internet : les réponses des fournisseurs sont simulées.
    Espagne, au Royaume-Uni (pays + code postal).
 3. Déplacer le marqueur : l'adresse se met à jour et la validation redevient
    nécessaire.
-4. Vérifier que la **vue aérienne** s'affiche par défaut, qu'une photo
-   Panoramax est proposée dans l'onglet « Photo extérieure » (crédit + licence
-   cliquables) et que le bloc reste validable sans photo.
+4. Vérifier les **quatre boutons de vue** sur les deux blocs (Plan OSM, Plan
+   IGN, Photo aérienne, Street View), le chargement des tuiles IGN, l'image de
+   rue Panoramax (crédit, flèches, lien 360°) et le comportement sans image de
+   rue (message explicite, bloc validable).
 5. `Suivant` bloqué sans validation, message lisible, échappatoire fonctionnelle.
 6. Réception du lead en CRM et dans Google Sheets : champs `loc_*` +
    récapitulatif. Tester `lpLead.preview()` en console.

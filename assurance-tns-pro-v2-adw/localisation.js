@@ -40,17 +40,22 @@
     requestTimeoutMs: 9000,
     maxResults: 8,
     tiles: {
-      /* Fond de carte « rue ». Le serveur de tuiles public d'OpenStreetMap
-         (tile.openstreetmap.org) bloque les applications qui ne respectent pas
-         sa politique d'usage (403 « Access blocked »). Esri World Street Map
-         est utilisé par défaut : couverture européenne, pas de clé, attribution
-         affichée. Surchargez `street` pour un fournisseur sous contrat. */
+      /* Fond « Plan OSM » : serveur OpenStreetMap France (le serveur public
+         tile.openstreetmap.org bloque les applications hors politique d'usage :
+         403 « Access blocked »). */
+      osm: 'https://tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png',
+      osmAttribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> France',
+      /* Fond « Plan IGN » : WMTS Géoplateforme (IGN), sans clé, France. */
+      ign: 'https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/png&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}',
+      ignAttribution: 'Plan IGN &copy; <a href="https://www.ign.fr/" target="_blank" rel="noopener">IGN</a> – Géoplateforme',
+      /* Fond « Photo aérienne ». */
+      aerial: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      aerialAttribution: 'Photo aérienne &copy; Esri, Maxar, Earthstar Geographics',
+      /* Repli commun si un plan ne répond pas (403, réseau, extension…). */
       street: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
       streetAttribution: 'Fond de carte &copy; <a href="https://www.esri.com/" target="_blank" rel="noopener">Esri</a>, HERE, Garmin',
-      streetFallback: 'https://tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png',
-      streetFallbackAttribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> France',
-      aerial: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-      aerialAttribution: 'Imagerie &copy; Esri, Maxar, Earthstar Geographics'
+      streetFallback: '',
+      streetFallbackAttribution: ''
     },
     urls: {
       geopf: 'https://data.geopf.fr/geocodage/search',
@@ -114,6 +119,10 @@
   var modal = { name: null, results: [], busy: false, query: null, photoIndex: 0 };
   var reverseToken = 0;
   var photoToken = 0;
+  var photosLoading = false;
+  var STREET_INDEX = { localisation: 0, batiment: 0 };
+  var VIEW_ORDER = ['osm', 'ign', 'aerienne', 'rue'];
+  var VIEW_TITLES = { osm: 'Plan OSM', ign: 'Plan IGN', aerienne: 'Photo aérienne', rue: 'Street View' };
 
   function log() {
     if (!CFG.debug || !window.console) return;
@@ -432,76 +441,175 @@
       ui.root.removeAttribute('data-attention');
     }
 
-    if (name === 'batiment') {
-      renderBatimentMedia(block, ui);
-    }
+    renderMedia(name);
   }
 
-  function renderBatimentMedia(block, ui) {
-    var hasPhoto = !!(block.photo && block.photo.image);
-    var mode = block.mode === 'aerienne' ? 'aerienne' : 'facade';
+  /* Images de rue disponibles (Panoramax / Commons) : la liste est partagée
+     par les deux blocs, leurs adresses étant en général identiques. */
+  function photoList() {
+    var photos = STATE.batiment.photos || [];
+    return photos.filter(function (photo) { return !!(photo && photo.image); });
+  }
+
+  function currentStreetPhoto(name) {
+    var pool = photoList();
+    if (!pool.length) return null;
+    return pool[Math.abs(STREET_INDEX[name] || 0) % pool.length];
+  }
+
+  /* Les attributions de tuiles contiennent du HTML (liens, entités) : on les
+     affiche en texte simple sous la carte. */
+  function plainAttribution(value) {
+    if (!value) return '';
+    var text = String(value).replace(/<[^>]*>/g, '');
+    text = text
+      .replace(/&copy;/gi, '©')
+      .replace(/&amp;/gi, '&')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&deg;/gi, '°')
+      .replace(/&quot;/gi, '"');
+    return text.replace(/\s+/g, ' ').trim();
+  }
+
+  function attributionFor(view) {
+    var tiles = CFG.tiles || {};
+    if (view === 'aerienne') return tiles.aerialAttribution || '';
+    if (view === 'ign') return tiles.ignAttribution || '';
+    return tiles.osmAttribution || '';
+  }
+
+  /* Affiche l'image de rue (plein cadre, libellé d'adresse, crédit, flèches). */
+  function renderStreet(name, ui) {
+    var block = STATE[name];
+    var pool = photoList();
+    var photo = currentStreetPhoto(name);
+
+    if (ui.rueImg) {
+      if (photo) {
+        if (ui.rueImg.getAttribute('src') !== photo.image) ui.rueImg.src = photo.image;
+        ui.rueImg.alt = 'Image de rue' + (block.address ? ' — ' + block.address.label : '');
+        /* Les photos Panoramax sont des panoramas 360° : on recadre la bande
+           centrale pour retrouver le cadrage d'une vue de rue classique. */
+        ui.rueImg.classList.toggle('loc-rue__img--360', photo.provider === 'panoramax');
+      } else {
+        ui.rueImg.removeAttribute('src');
+        ui.rueImg.classList.remove('loc-rue__img--360');
+      }
+    }
+    if (ui.rueCredit) {
+      ui.rueCredit.textContent = photo
+        ? [photo.providerLabel || 'Source ouverte', photo.license].filter(Boolean).join(' · ')
+        : '';
+    }
+    if (ui.rueAddress) {
+      ui.rueAddress.textContent = block.address ? block.address.label : '';
+      ui.rueAddress.hidden = !block.address;
+    }
+    var multiple = pool.length > 1;
+    if (ui.ruePrev) ui.ruePrev.hidden = !multiple;
+    if (ui.rueNext) ui.rueNext.hidden = !multiple;
+    if (ui.rueLink) {
+      if (photo && photo.viewerUrl) {
+        ui.rueLink.href = photo.viewerUrl;
+        ui.rueLink.hidden = false;
+      } else {
+        ui.rueLink.removeAttribute('href');
+        ui.rueLink.hidden = true;
+      }
+    }
+    return photo;
+  }
+
+  /* Rendu de la zone média d'un bloc, selon la vue choisie. */
+  function renderMedia(name) {
+    var ui = UI.blocks[name];
+    var block = STATE[name];
+    if (!ui) return;
+    var view = viewOf(name);
     var hasAddress = !!block.address;
+    var pool = photoList();
+    var isStreet = view === 'rue';
 
     if (ui.tabs) {
       ui.tabs.forEach(function (tab) {
-        var value = tab.getAttribute('data-loc-view');
-        tab.setAttribute('aria-pressed', value === mode ? 'true' : 'false');
+        tab.setAttribute('aria-pressed', tab.getAttribute('data-loc-view') === view ? 'true' : 'false');
       });
     }
-    if (ui.img) {
-      if (hasPhoto && mode === 'facade') {
-        ui.img.src = block.photo.thumb || block.photo.image;
-        ui.img.setAttribute('data-full', block.photo.image || '');
-        ui.img.alt = 'Photographie du bâtiment de l’entreprise — ' + (block.photo.providerLabel || 'source ouverte');
-        ui.img.hidden = false;
-      } else {
-        ui.img.hidden = true;
+
+    var showStreet = isStreet && hasAddress && pool.length > 0;
+    var showMap = !isStreet && (hasAddress || name === 'localisation');
+    var showPlaceholder = !showStreet && !showMap;
+    var showLoading = isStreet && !showStreet && photosLoading;
+
+    if (ui.rue) ui.rue.hidden = !showStreet;
+    if (showStreet) renderStreet(name, ui);
+
+    if (ui.map) {
+      var wasHidden = ui.map.hidden;
+      ui.map.hidden = !showMap;
+      if (showMap && wasHidden) {
+        window.setTimeout(function () {
+          if (MAPS[name]) MAPS[name].map.invalidateSize();
+        }, 80);
       }
     }
+    if (showMap) {
+      if (window.L) {
+        ensureMap(name);
+        applyBasemap(name);
+        centerMap(name);
+      } else {
+        renderMapFallback(name);
+      }
+    }
+
+    if (ui.loading) ui.loading.hidden = !showLoading;
+
     if (ui.placeholder) {
-      var showPlaceholder = !hasAddress || (mode === 'facade' && !hasPhoto);
       ui.placeholder.hidden = !showPlaceholder;
       if (showPlaceholder) {
-        var text = ui.placeholder.querySelector('[data-loc-photo-empty-text]');
-        if (text) {
-          text.textContent = hasAddress
-            ? 'Aucune photographie extérieure disponible dans les sources ouvertes pour cette adresse.'
-            : 'Renseignez l’adresse pour afficher le bâtiment et sa photo extérieure.';
+        if (isStreet) {
+          if (ui.placeholderTitle) ui.placeholderTitle.textContent = 'Image de rue indisponible';
+          if (ui.placeholderText) {
+            ui.placeholderText.textContent = hasAddress
+              ? 'Aucune image de rue n’est disponible dans les sources ouvertes pour cette adresse.'
+              : 'Renseignez votre adresse pour afficher l’image de rue.';
+          }
+          if (ui.aerialTrigger) ui.aerialTrigger.hidden = !hasAddress;
+        } else {
+          if (ui.placeholderTitle) ui.placeholderTitle.textContent = 'Vue du bâtiment';
+          if (ui.placeholderText) {
+            ui.placeholderText.textContent = 'Renseignez l’adresse du bâtiment pour afficher la carte.';
+          }
+          if (ui.aerialTrigger) ui.aerialTrigger.hidden = true;
         }
-        var aerialBtn = ui.placeholder.querySelector('[data-loc-view-aerial]');
-        if (aerialBtn) aerialBtn.hidden = !hasAddress;
       }
     }
-    if (ui.aerial) {
-      ui.aerial.hidden = mode !== 'aerienne' || !hasAddress;
-    } else if (ui.media) {
-      ui.media.hidden = mode === 'aerienne' && !hasAddress;
-    }
-    if (ui.nextPhoto) {
-      ui.nextPhoto.hidden = !(mode === 'facade' && hasPhoto && block.photos && block.photos.length > 1);
-    }
+
     if (ui.credit) {
       ui.credit.textContent = '';
-      if (hasPhoto && mode === 'facade') {
-        var bits = [];
-        bits.push('Photo : ' + (block.photo.credit || block.photo.providerLabel || 'source ouverte'));
-        if (block.photo.license) bits.push(block.photo.license);
-        if (block.photo.datetime) bits.push(formatDate(block.photo.datetime));
-        if (isFinite(block.photo.distance) && block.photo.distance >= 0) {
-          bits.push('à ' + Math.round(block.photo.distance) + ' m de l’adresse');
+      if (showStreet) {
+        var photo = currentStreetPhoto(name);
+        if (photo) {
+          var bits = ['Image : ' + (photo.credit || photo.providerLabel || 'source ouverte')];
+          if (photo.license) bits.push(photo.license);
+          if (photo.datetime) bits.push(formatDate(photo.datetime));
+          if (isFinite(photo.distance) && photo.distance >= 0) {
+            bits.push('à ' + Math.round(photo.distance) + ' m de l’adresse');
+          }
+          ui.credit.appendChild(document.createTextNode(bits.join(' · ')));
+          if (photo.viewerUrl) {
+            ui.credit.appendChild(document.createTextNode(' · '));
+            var link = document.createElement('a');
+            link.href = photo.viewerUrl;
+            link.target = '_blank';
+            link.rel = 'noopener nofollow';
+            link.textContent = 'ouvrir le panorama';
+            ui.credit.appendChild(link);
+          }
         }
-        ui.credit.appendChild(document.createTextNode(bits.join(' · ')));
-        if (block.photo.viewerUrl) {
-          ui.credit.appendChild(document.createTextNode(' · '));
-          var link = document.createElement('a');
-          link.href = block.photo.viewerUrl;
-          link.target = '_blank';
-          link.rel = 'noopener nofollow';
-          link.textContent = 'ouvrir la source';
-          ui.credit.appendChild(link);
-        }
-      } else if (mode === 'aerienne' && hasAddress) {
-        ui.credit.appendChild(document.createTextNode('Vue aérienne © Esri, Maxar, Earthstar Geographics'));
+      } else if (showMap) {
+        ui.credit.appendChild(document.createTextNode(plainAttribution(attributionFor(view))));
       }
     }
   }
@@ -522,7 +630,7 @@
   }
 
   /* ================================================================== *
-   * Cartes (Leaflet)
+   * Vues (plan OSM, plan IGN, photo aérienne, Street View) et cartes
    * ================================================================== */
   function isStepVisible() {
     if (!rootEl) return false;
@@ -530,20 +638,51 @@
     return rootEl.offsetParent !== null || window.getComputedStyle(rootEl).position === 'fixed';
   }
 
-  /* Fournisseurs de fond de carte, dans l'ordre de repli. */
-  function streetTileProviders() {
+  function viewOf(name) {
+    var block = STATE[name];
+    var view = block ? block.mode : null;
+    if (view === 'facade') return 'rue';
+    return VIEW_ORDER.indexOf(view) !== -1 ? view : (name === 'batiment' ? 'aerienne' : 'osm');
+  }
+
+  function viewLabel(view) {
+    return VIEW_TITLES[view] || VIEW_TITLES.osm;
+  }
+
+  function zoomFor(name, view) {
+    if (view === 'aerienne') return name === 'batiment' ? CFG.aerialZoom : Math.max(CFG.mapZoom + 1, 17);
+    if (view === 'rue') return CFG.mapZoom;
+    return name === 'batiment' ? CFG.mapZoom + 1 : CFG.mapZoom;
+  }
+
+  /* Couche de base correspondant à une vue. */
+  function basemapSpec(view) {
     var tiles = CFG.tiles || {};
-    var providers = [];
-    if (tiles.street) {
-      providers.push({ url: tiles.street, attribution: tiles.streetAttribution || '' });
+    if (view === 'aerienne') {
+      return { url: tiles.aerial, attribution: tiles.aerialAttribution || '', maxNativeZoom: 19, maxZoom: 19 };
     }
-    if (tiles.streetFallback) {
-      providers.push({
-        url: tiles.streetFallback,
-        attribution: tiles.streetFallbackAttribution || tiles.streetAttribution || ''
-      });
+    if (view === 'ign') {
+      return { url: tiles.ign, attribution: tiles.ignAttribution || '', maxNativeZoom: 18, maxZoom: 19 };
     }
-    return providers;
+    return { url: tiles.osm, attribution: tiles.osmAttribution || '', maxNativeZoom: 19, maxZoom: 19 };
+  }
+
+  /* Repli commun (Esri) quand les tuiles d'un plan ne répondent pas. */
+  function fallbackSpec(view) {
+    var tiles = CFG.tiles || {};
+    if (view === 'aerienne' || !tiles.street) return null;
+    return { url: tiles.street, attribution: tiles.streetAttribution || '', maxNativeZoom: 19, maxZoom: 19 };
+  }
+
+  /* Chaîne de repli exposée pour les tests et le support. */
+  function streetTileProviders() {
+    var view = 'osm';
+    var chain = [];
+    var spec = basemapSpec(view);
+    if (spec && spec.url) chain.push({ url: spec.url, attribution: spec.attribution });
+    var fb = fallbackSpec(view);
+    if (fb && fb.url && fb.url !== spec.url) chain.push({ url: fb.url, attribution: fb.attribution });
+    return chain;
   }
 
   function showMapNotice(map, text) {
@@ -556,122 +695,155 @@
     container.appendChild(notice);
   }
 
-  /* Ajoute le fond de carte et bascule sur le fournisseur suivant si les
-   * tuiles échouent (403, réseau, blocage d'extension…), pour ne jamais
-   * laisser la carte vide. */
-  function addStreetTiles(map) {
-    var providers = streetTileProviders();
-    if (!providers.length) return null;
-    var state = { index: 0, layer: null };
+  /* Ajoute une couche de tuiles et bascule sur la suivante si elle échoue
+     (403, réseau, blocage d'extension…), pour ne jamais laisser la carte vide. */
+  function attachTiles(entry, chain) {
+    var index = 0;
 
     function attach() {
-      var provider = providers[state.index];
-      var layer = window.L.tileLayer(provider.url, {
-        maxZoom: 19,
-        attribution: provider.attribution
+      var spec = chain[index];
+      var layer = window.L.tileLayer(spec.url, {
+        maxZoom: spec.maxZoom || 19,
+        maxNativeZoom: spec.maxNativeZoom || 18,
+        attribution: spec.attribution || ''
       });
       var errors = 0;
       layer.on('tileerror', function () {
-        if (!map.hasLayer(layer)) return;
+        if (!entry.map.hasLayer(layer)) return;
         errors += 1;
         if (errors < 3) return;
-        map.removeLayer(layer);
-        if (state.index < providers.length - 1) {
-          log('Tuiles indisponibles, bascule sur « ' + providers[state.index + 1].url + ' »');
-          state.index += 1;
+        entry.map.removeLayer(layer);
+        if (index < chain.length - 1) {
+          index += 1;
+          log('Tuiles indisponibles, bascule sur « ' + chain[index].url + ' »');
           attach();
-          return;
+        } else {
+          showMapNotice(entry.map, 'Fond de carte indisponible');
         }
-        showMapNotice(map, 'Fond de carte indisponible — l’adresse et les coordonnées restent valides.');
       });
-      layer.addTo(map);
-      state.layer = layer;
+      layer.addTo(entry.map);
+      entry.layer = layer;
     }
 
     attach();
-    return state;
   }
 
-  function ensureLocalisationMap() {
-    if (MAPS.localisation || !window.L || !UI.blocks.localisation.map) return MAPS.localisation || null;
-    var container = UI.blocks.localisation.map;
-    var address = STATE.localisation.address;
-    var start = address ? [address.lat, address.lon] : [46.6, 2.4];
+  function ensureMap(name) {
+    var ui = UI.blocks[name];
+    if (!ui || !ui.map) return null;
+    if (MAPS[name]) return MAPS[name];
+    var block = STATE[name];
+    if (!block.address && name === 'batiment') return null;
+    if (!window.L) return null;
+    var view = viewOf(name);
+    var center = block.address ? [block.address.lat, block.address.lon] : [46.6, 2.4];
     var map;
     try {
-      map = window.L.map(container, {
+      map = window.L.map(ui.map, {
         zoomControl: true,
         scrollWheelZoom: false,
         attributionControl: true,
-        minZoom: 3
-      }).setView(start, address ? CFG.mapZoom : 5);
-      addStreetTiles(map);
+        minZoom: 3,
+        maxZoom: 19
+      }).setView(center, block.address ? zoomFor(name, view) : 5);
     } catch (e) {
       log('Initialisation de la carte impossible', e);
-      renderMapFallback('localisation');
+      renderMapFallback(name);
       return null;
     }
-    var marker = window.L.marker(start, { draggable: true, keyboard: false });
-    if (address) marker.addTo(map);
-    marker.on('dragend', function () {
-      var pos = marker.getLatLng();
-      reverseGeocode(pos.lat, pos.lng);
-    });
-    map.on('click', function (event) {
-      placeMarker(event.latlng.lat, event.latlng.lng, true);
-    });
-    MAPS.localisation = { map: map, marker: marker };
-    window.setTimeout(function () { map.invalidateSize(); }, 180);
-    return MAPS.localisation;
+    var entry = { map: map, marker: null, layer: null, layerView: null, centerKey: '' };
+    if (name === 'localisation') {
+      entry.marker = window.L.marker(center, { draggable: true, keyboard: false });
+      entry.marker.on('dragend', function () {
+        var pos = entry.marker.getLatLng();
+        reverseGeocode(pos.lat, pos.lng);
+      });
+      map.on('click', function (event) {
+        placeMarker(event.latlng.lat, event.latlng.lng, true);
+      });
+    } else if (block.address) {
+      entry.marker = window.L.marker(center, { keyboard: false }).addTo(map);
+    }
+    MAPS[name] = entry;
+    applyBasemap(name);
+    window.setTimeout(function () { map.invalidateSize(); }, 160);
+    return entry;
   }
 
-  function ensureAerialMap() {
-    var block = STATE.batiment;
-    if (!UI.blocks.batiment.aerial) return null;
-    if (!block.address) return null;
+  function applyBasemap(name) {
+    var entry = MAPS[name];
+    if (!entry) return;
+    var view = viewOf(name);
+    if (entry.layerView === view) return;
+    if (entry.layer && entry.map.hasLayer(entry.layer)) entry.map.removeLayer(entry.layer);
+    entry.layer = null;
+    entry.layerView = view;
+    if (view === 'rue') return;
+    var spec = basemapSpec(view);
+    if (!spec || !spec.url) return;
+    var chain = [spec];
+    var fb = fallbackSpec(view);
+    if (fb && fb.url && fb.url !== spec.url) chain.push(fb);
+    attachTiles(entry, chain);
+  }
+
+  /* Recentre la carte uniquement quand l'adresse ou la vue change. */
+  function centerMap(name, force) {
+    var entry = MAPS[name];
+    var block = STATE[name];
+    if (!entry || !block) return;
+    var view = viewOf(name);
+    var key = block.address
+      ? [block.address.lat, block.address.lon, view].join('|')
+      : 'none|' + view;
+    if (!force && entry.centerKey === key) return;
+    entry.centerKey = key;
+    if (block.address) {
+      entry.map.setView([block.address.lat, block.address.lon], zoomFor(name, view));
+      if (entry.marker) {
+        entry.marker.setLatLng([block.address.lat, block.address.lon]);
+        if (!entry.map.hasLayer(entry.marker)) entry.marker.addTo(entry.map);
+      }
+    } else if (name === 'localisation') {
+      entry.map.setView([46.6, 2.4], 5);
+      if (entry.marker && entry.map.hasLayer(entry.marker)) entry.map.removeLayer(entry.marker);
+    }
+    window.setTimeout(function () { entry.map.invalidateSize(); }, 60);
+  }
+
+  function refreshMap(name, force) {
+    var block = STATE[name];
+    if (!block) return;
+    if (viewOf(name) === 'rue') return;
+    if (name === 'batiment' && !block.address) return;
     if (!window.L) {
-      renderMapFallback('batiment');
-      return null;
+      renderMapFallback(name);
+      return;
     }
-    if (MAPS.batiment) return MAPS.batiment;
-    var container = UI.blocks.batiment.aerial;
-    var map;
-    try {
-      map = window.L.map(container, {
-        zoomControl: true,
-        scrollWheelZoom: false,
-        attributionControl: true,
-        maxZoom: 19
-      }).setView([block.address.lat, block.address.lon], CFG.aerialZoom);
-      window.L.tileLayer(CFG.tiles.aerial, {
-        maxZoom: 19,
-        maxNativeZoom: 19,
-        attribution: CFG.tiles.aerialAttribution
-      }).addTo(map);
-    } catch (e) {
-      log('Initialisation de la vue aérienne impossible', e);
-      renderMapFallback('batiment');
-      return null;
-    }
-    window.L.marker([block.address.lat, block.address.lon], { keyboard: false }).addTo(map);
-    MAPS.batiment = { map: map };
-    window.setTimeout(function () { map.invalidateSize(); }, 180);
-    return MAPS.batiment;
+    ensureMap(name);
+    applyBasemap(name);
+    centerMap(name, force);
   }
 
   function renderMapFallback(name) {
-    var target = name === 'localisation' ? UI.blocks.localisation.map : UI.blocks.batiment.aerial;
-    if (!target) return;
-    var address = STATE[name] && STATE[name].address;
+    var ui = UI.blocks[name];
+    var block = STATE[name];
+    if (!ui || !ui.map || !block) return;
+    var address = block.address;
     if (!address) return;
-    target.innerHTML = '';
+    var view = viewOf(name);
+    var key = view + '|' + address.lat + '|' + address.lon;
+    if (ui.map.getAttribute('data-fallback') === key) return;
+    ui.map.setAttribute('data-fallback', key);
+    ui.map.innerHTML = '';
+
     var wrap = document.createElement('div');
     wrap.className = 'loc-map__fallback';
     var coords = document.createElement('p');
     coords.className = 'loc-map__fallback-coords';
     coords.textContent = Core.formatCoords(address.lat, address.lon);
     var text = document.createElement('p');
-    text.textContent = 'Carte interactive indisponible.';
+    text.textContent = window.L ? 'Carte interactive indisponible.' : 'Carte interactive indisponible (Leaflet non chargé).';
     var link = document.createElement('a');
     link.href = 'https://www.openstreetmap.org/?mlat=' + address.lat + '&mlon=' + address.lon + '#map=18/' + address.lat + '/' + address.lon;
     link.target = '_blank';
@@ -680,19 +852,20 @@
     wrap.appendChild(coords);
     wrap.appendChild(text);
     wrap.appendChild(link);
-    if (name === 'batiment') {
+
+    if (view === 'aerienne') {
       var img = document.createElement('img');
       img.src = aerialImageUrl(address, CFG);
       img.alt = 'Vue aérienne du bâtiment';
       img.loading = 'lazy';
       img.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:-1';
-      target.style.position = 'relative';
-      target.appendChild(img);
+      ui.map.style.position = 'relative';
+      ui.map.appendChild(img);
       wrap.style.background = 'rgba(255,255,255,.86)';
-      wrap.style.position = 'relative';
-      wrap.style.zIndex = '1';
     }
-    target.appendChild(wrap);
+    wrap.style.position = 'relative';
+    wrap.style.zIndex = '1';
+    ui.map.appendChild(wrap);
   }
 
   function aerialImageUrl(address, config) {
@@ -706,37 +879,55 @@
     return url;
   }
 
-  function refreshMap(name) {
-    var address = STATE[name] ? STATE[name].address : null;
-    if (name === 'localisation') {
-      var entry = MAPS.localisation || ensureLocalisationMap();
-      if (!entry) return;
-      if (address) {
-        var zoom = Math.max(entry.map.getZoom(), CFG.mapZoom);
-        entry.map.setView([address.lat, address.lon], zoom);
-        entry.marker.setLatLng([address.lat, address.lon]);
-        if (!entry.map.hasLayer(entry.marker)) entry.marker.addTo(entry.map);
-      } else {
-        entry.map.setView([46.6, 2.4], 5);
-        if (entry.map.hasLayer(entry.marker)) entry.map.removeLayer(entry.marker);
-      }
-      window.setTimeout(function () { entry.map.invalidateSize(); }, 80);
-      return;
-    }
-    if (!address) return;
-    if (STATE.batiment.mode !== 'aerienne') return;
-    var aerial = MAPS.batiment || ensureAerialMap();
-    if (!aerial) return;
-    aerial.map.setView([address.lat, address.lon], CFG.aerialZoom);
-    window.setTimeout(function () { aerial.map.invalidateSize(); }, 80);
-  }
-
   function placeMarker(lat, lon, shouldReverse) {
     var entry = MAPS.localisation;
-    if (!entry) return;
+    if (!entry || !entry.marker) return;
     entry.marker.setLatLng([lat, lon]);
     if (!entry.map.hasLayer(entry.marker)) entry.marker.addTo(entry.map);
     if (shouldReverse) reverseGeocode(lat, lon);
+  }
+
+  /* Change la vue d'un bloc (Plan OSM, Plan IGN, Photo aérienne, Street View). */
+  function setView(name, view) {
+    var block = STATE[name];
+    if (!block) return;
+    var next = VIEW_ORDER.indexOf(view) !== -1 ? view : (name === 'batiment' ? 'aerienne' : 'osm');
+    block.mode = next;
+    if (next === 'rue') ensureStreetPhotos();
+    renderBlock(name);
+    if (next !== 'rue') refreshMap(name, next === 'aerienne');
+    syncHiddenFields();
+    persist();
+    if (block.validated) {
+      setStatus(name, 'Vue enregistrée : ' + viewLabel(next) + '.', 'ok');
+    }
+    emit('change', { bloc: name, vue: next, mode: next });
+  }
+
+  /* Navigation entre les images de rue disponibles. */
+  function stepStreet(name, delta) {
+    var pool = photoList();
+    if (pool.length < 2) return;
+    STREET_INDEX[name] = ((STREET_INDEX[name] || 0) + delta + pool.length) % pool.length;
+    if (name === 'batiment') {
+      STATE.batiment.photo = pool[STREET_INDEX.batiment];
+      STATE.batiment.validated = false;
+    }
+    renderBlock(name);
+    syncHiddenFields();
+    persist();
+    setStatus(name, 'Image de rue ' + (STREET_INDEX[name] + 1) + ' sur ' + pool.length + '.', '');
+  }
+
+  /* Charge les images de rue si elles ne le sont pas encore. */
+  function ensureStreetPhotos() {
+    if (photoList().length || photosLoading) return;
+    if (!STATE.batiment.address && !STATE.localisation.address) return;
+    if (!STATE.batiment.address && STATE.localisation.address) {
+      applyResult('batiment', STATE.localisation.address, STATE.localisation.query);
+      return;
+    }
+    loadBuildingPhotos();
   }
 
   /* ================================================================== *
@@ -766,6 +957,8 @@
         block.photo = null;
         block.photos = [];
         block.mode = 'aerienne';
+        STREET_INDEX.batiment = 0;
+        STREET_INDEX.localisation = 0;
       }
       renderBlock(name);
       refreshMap(name);
@@ -787,8 +980,10 @@
     var address = block.address;
     if (!address) return Promise.resolve([]);
     var token = ++photoToken;
+    photosLoading = true;
     if (UI.blocks.batiment.loading) UI.blocks.batiment.loading.hidden = false;
-    setStatus('batiment', 'Recherche de la photographie du bâtiment…', 'loading');
+    renderBlock('batiment');
+    setStatus('batiment', 'Recherche des images de rue du bâtiment…', 'loading');
 
     var providers = Array.isArray(CFG.photoProviderOrder) ? CFG.photoProviderOrder : [];
     var tasks = providers.map(function (provider) {
@@ -825,35 +1020,36 @@
         (list || []).forEach(function (item) { photos.push(item); });
       });
       photos = photos.slice(0, 8);
+      photosLoading = false;
       block.photos = photos;
+      STREET_INDEX.batiment = 0;
+      STREET_INDEX.localisation = 0;
       if (photos.length) {
         block.photo = photos[0];
-        setStatus('batiment', block.mode === 'facade'
-          ? 'Photographie extérieure trouvée (' + (photos[0].providerLabel || 'source ouverte') + '). Vérifiez qu’il s’agit bien de vos locaux puis validez.'
-          : 'Vue aérienne du bâtiment affichée · ' + photos.length + (photos.length > 1 ? ' photos extérieures disponibles' : ' photo extérieure disponible') + ' dans l’onglet « Photo extérieure ».', 'ok');
+        setStatus('batiment', block.mode === 'rue'
+          ? 'Image de rue trouvée (' + (photos[0].providerLabel || 'source ouverte') + '). Vérifiez qu’il s’agit bien de vos locaux puis validez.'
+          : 'Image de rue disponible (' + photos.length + (photos.length > 1 ? ' images' : ' image') + ') : ouvrez l’onglet « Street View » du bloc.', 'ok');
       } else {
         block.photo = null;
-        block.mode = 'aerienne';
-        setStatus('batiment', 'Vue aérienne du bâtiment affichée. Aucune photographie extérieure n’est disponible pour cette adresse : vous pouvez valider en l’état.', '');
+        setStatus('batiment', 'Aucune image de rue n’est disponible pour cette adresse : la carte et la photo aérienne restent disponibles.', '');
       }
       if (UI.blocks.batiment.loading) UI.blocks.batiment.loading.hidden = true;
       renderBlock('batiment');
-      if (block.mode === 'aerienne') {
-        ensureAerialMap();
-        window.setTimeout(function () { refreshMap('batiment'); }, 60);
-      }
+      renderBlock('localisation');
+      refreshMap('batiment');
+      window.setTimeout(function () { refreshMap('batiment'); }, 60);
       syncHiddenFields();
       persist();
       emit('change', { bloc: 'batiment', photos: photos.length });
       return photos;
     }).catch(function (error) {
       if (token !== photoToken) return [];
+      photosLoading = false;
       if (UI.blocks.batiment.loading) UI.blocks.batiment.loading.hidden = true;
-      block.mode = 'aerienne';
       renderBlock('batiment');
-      ensureAerialMap();
-      window.setTimeout(function () { refreshMap('batiment'); }, 60);
-      setStatus('batiment', 'La recherche de photographie a échoué. La vue aérienne reste disponible.', 'error');
+      renderBlock('localisation');
+      refreshMap('batiment');
+      setStatus('batiment', 'La recherche d’images de rue a échoué. La carte et la photo aérienne restent disponibles.', 'error');
       emit('change', { bloc: 'batiment', error: error && error.message });
       return [];
     });
@@ -873,16 +1069,13 @@
       }
       return false;
     }
-    if (name === 'batiment' && block.mode === 'facade' && !block.photo) {
-      block.mode = 'aerienne';
+    if (block.mode === 'rue' && !photoList().length) {
+      block.mode = name === 'batiment' ? 'aerienne' : 'osm';
     }
     block.validated = true;
     block.updatedAt = nowIso();
     renderBlock(name);
-    if (name === 'batiment' && block.mode === 'aerienne') {
-      ensureAerialMap();
-      refreshMap('batiment');
-    }
+    refreshMap(name);
     syncHiddenFields();
     persist();
     hideGate();
@@ -894,7 +1087,7 @@
       adresse: block.address.label,
       latitude: block.address.lat,
       longitude: block.address.lon,
-      vue: name === 'batiment' ? block.mode : null
+      vue: block.mode
     });
     return true;
   }
@@ -1329,8 +1522,7 @@
     persist();
     closeModal(name);
     if (name === 'batiment') {
-      ensureAerialMap();
-      setStatus('batiment', 'Adresse du bâtiment enregistrée. Recherche de la photographie extérieure…', 'loading');
+      setStatus('batiment', 'Adresse du bâtiment enregistrée. Recherche des images de rue…', 'loading');
       loadBuildingPhotos();
     } else {
       setStatus('localisation', 'Adresse trouvée. Vérifiez le repère (déplaçable), puis cliquez sur « Valider ».', 'ok');
@@ -1407,20 +1599,21 @@
     }
     if (!force && visible === lastVisible) {
       if (visible) {
-        if (MAPS.localisation) window.setTimeout(function () { MAPS.localisation.map.invalidateSize(); }, 60);
+        BLOCKS.forEach(function (name) {
+          if (MAPS[name]) window.setTimeout(function () { MAPS[name].map.invalidateSize(); }, 60);
+        });
       }
       return;
     }
     lastVisible = visible;
     if (cardEl) cardEl.classList.toggle('loc-widen', visible);
     if (!visible) return;
-    ensureLocalisationMap();
-    if (STATE.batiment.mode === 'aerienne' && STATE.batiment.address) {
-      ensureAerialMap();
-    }
+    renderBlock('localisation');
+    if (STATE.batiment.address || STATE.batiment.mode === 'rue') renderBlock('batiment');
     window.setTimeout(function () {
-      if (MAPS.localisation) MAPS.localisation.map.invalidateSize();
-      if (MAPS.batiment) MAPS.batiment.map.invalidateSize();
+      BLOCKS.forEach(function (name) {
+        if (MAPS[name]) MAPS[name].map.invalidateSize();
+      });
     }, 160);
   }
 
@@ -1441,18 +1634,22 @@
         searchBtn: root.querySelector('[data-loc-search]'),
         validateBtn: root.querySelector('[data-loc-validate]')
       };
-      if (name === 'localisation') {
-        ui.map = root.querySelector('[data-loc-map="localisation"]');
-      } else {
-        ui.media = root.querySelector('[data-loc-media]');
-        ui.img = root.querySelector('[data-loc-photo]');
-        ui.placeholder = root.querySelector('[data-loc-photo-empty]');
-        ui.loading = root.querySelector('[data-loc-photo-loading]');
-        ui.credit = root.querySelector('[data-loc-credit]');
-        ui.aerial = root.querySelector('[data-loc-map="batiment"]');
-        ui.tabs = $$('[data-loc-view]', root);
-        ui.nextPhoto = root.querySelector('[data-loc-photo-next]');
-      }
+      ui.media = root.querySelector('[data-loc-media]');
+      ui.map = root.querySelector('[data-loc-map]');
+      ui.placeholder = root.querySelector('[data-loc-placeholder]');
+      ui.placeholderTitle = root.querySelector('[data-loc-placeholder-title]');
+      ui.placeholderText = root.querySelector('[data-loc-placeholder-text]');
+      ui.loading = root.querySelector('[data-loc-loading]');
+      ui.credit = root.querySelector('[data-loc-credit]');
+      ui.tabs = $$('[data-loc-view]', root);
+      ui.rue = root.querySelector('[data-loc-rue]');
+      ui.rueImg = root.querySelector('[data-loc-rue-img]');
+      ui.rueCredit = root.querySelector('[data-loc-rue-credit]');
+      ui.rueAddress = root.querySelector('[data-loc-rue-address]');
+      ui.ruePrev = root.querySelector('[data-loc-rue-prev]');
+      ui.rueNext = root.querySelector('[data-loc-rue-next]');
+      ui.rueLink = root.querySelector('[data-loc-rue-link]');
+      ui.aerialTrigger = root.querySelector('[data-loc-view-aerial]');
       UI.blocks[name] = ui;
       bindBlock(name, ui);
     });
@@ -1462,51 +1659,16 @@
     wx(ui.searchBtn, 'click', function () { openModal(name); });
     wx(ui.validateBtn, 'click', function () { validateBlock(name); });
 
-    if (name === 'batiment') {
-      if (ui.tabs) {
-        ui.tabs.forEach(function (tab) {
-          tab.addEventListener('click', function () {
-            setMode(tab.getAttribute('data-loc-view'));
-          });
-        });
-      }
-      wx(ui.nextPhoto, 'click', function () {
-        var block = STATE.batiment;
-        if (!block.photos || block.photos.length < 2) return;
-        modal.photoIndex = (modal.photoIndex + 1) % block.photos.length;
-        block.photo = block.photos[modal.photoIndex];
-        block.validated = false;
-        renderBlock('batiment');
-        syncHiddenFields();
-        persist();
-        setStatus('batiment', 'Photo ' + (modal.photoIndex + 1) + ' sur ' + block.photos.length + '. Validez lorsque la bonne photographie est affichée.', '');
-      });
-      var aerialTrigger = ui.placeholder ? ui.placeholder.querySelector('[data-loc-view-aerial]') : null;
-      wx(aerialTrigger, 'click', function () { setMode('aerienne'); });
-      wx(ui.img, 'error', function () {
-        setStatus('batiment', 'La photographie n’a pas pu être chargée. La vue aérienne reste disponible.', 'error');
-        setMode('aerienne');
-      });
-    }
-  }
-
-  function setMode(mode) {
-    var block = STATE.batiment;
-    if (mode !== 'aerienne') mode = 'facade';
-    block.mode = mode;
-    if (mode === 'aerienne') {
-      ensureAerialMap();
-      window.setTimeout(function () { refreshMap('batiment'); }, 40);
-    }
-    renderBlock('batiment');
-    syncHiddenFields();
-    persist();
-    if (block.validated) {
-      setStatus('batiment', mode === 'aerienne'
-        ? 'Vue aérienne enregistrée pour votre bâtiment.'
-        : 'Photo extérieure enregistrée pour votre bâtiment.', 'ok');
-    }
-    emit('change', { bloc: 'batiment', mode: mode });
+    (ui.tabs || []).forEach(function (tab) {
+      wx(tab, 'click', function () { setView(name, tab.getAttribute('data-loc-view')); });
+    });
+    wx(ui.ruePrev, 'click', function () { stepStreet(name, -1); });
+    wx(ui.rueNext, 'click', function () { stepStreet(name, 1); });
+    wx(ui.aerialTrigger, 'click', function () { setView(name, 'aerienne'); });
+    wx(ui.rueImg, 'error', function () {
+      setStatus(name, 'L’image de rue n’a pas pu être chargée. La carte et la photo aérienne restent disponibles.', 'error');
+      setView(name, 'aerienne');
+    });
   }
 
   function bindGlobalEvents() {
@@ -1616,6 +1778,8 @@
       prefill: function () { return maybeAutoFill(true); },
       getConfig: function () { return JSON.parse(JSON.stringify(CFG)); },
       getTileProviders: function () { return streetTileProviders(); },
+      getView: function (name) { return viewOf(name === 'batiment' ? 'batiment' : 'localisation'); },
+      setView: function (name, view) { setView(name === 'batiment' ? 'batiment' : 'localisation', view); },
       open: function (name) { openModal(name === 'batiment' ? 'batiment' : 'localisation'); },
       reset: function () {
         STATE = Core.createState();

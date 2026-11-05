@@ -181,7 +181,7 @@
 /* ----------------------------------------------------------------- Carte */
 .loc-map {
   position: relative;
-  height: 186px;
+  height: 220px;
   border-radius: 10px;
   overflow: hidden;
   background: #eef1f5;
@@ -258,7 +258,7 @@
 /* --------------------------------------------------------------- Médias */
 .loc-media {
   position: relative;
-  height: 186px;
+  height: 220px;
   border-radius: 10px;
   overflow: hidden;
   background: #eef1f5;
@@ -343,13 +343,136 @@
 }
 
 /* Onglets façade / vue aérienne */
+/* Onglets de vue : Plan OSM / Plan IGN / Photo aérienne / Street View */
 .loc-tabs {
   display: inline-flex;
   align-self: flex-start;
+  flex-wrap: wrap;
+  row-gap: 2px;
+  max-width: 100%;
   gap: 2px;
   padding: 3px;
-  border-radius: 999px;
+  border-radius: 14px;
   background: #f2f4f7;
+}
+
+/* Vue « Street View » : image de rue plein cadre, façon Google Street View */
+.loc-rue {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: #dfe4ea;
+}
+
+.loc-rue[hidden] {
+  display: none !important;
+}
+
+.loc-rue__img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 55%;
+  filter: saturate(1.05) contrast(1.03);
+}
+
+.loc-rue__img--360 {
+  transform: scale(1.95);
+  transform-origin: 50% 56%;
+}
+
+.loc-rue::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(12, 18, 28, .40) 0%, rgba(12, 18, 28, 0) 24%, rgba(12, 18, 28, 0) 60%, rgba(12, 18, 28, .55) 100%);
+}
+
+.loc-rue__credit,
+.loc-rue__label,
+.loc-rue__link,
+.loc-rue__arrow {
+  position: absolute;
+  z-index: 2;
+  font-family: Roboto, sans-serif;
+}
+
+.loc-rue__credit {
+  top: 7px;
+  left: 8px;
+  right: 8px;
+  color: #fff;
+  font-size: 9.5px;
+  line-height: 1.3;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .65);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.loc-rue__label {
+  left: 50%;
+  bottom: 9px;
+  transform: translateX(-50%);
+  max-width: calc(100% - 104px);
+  padding: 4px 11px;
+  border-radius: 999px;
+  background: rgba(17, 24, 39, .8);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 500;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.loc-rue__label[hidden],
+.loc-rue__link[hidden],
+.loc-rue__arrow[hidden] {
+  display: none !important;
+}
+
+.loc-rue__arrow {
+  top: 50%;
+  transform: translateY(-50%);
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, .93);
+  color: #1f2937;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(16, 24, 40, .3);
+}
+
+.loc-rue__arrow--prev { left: 7px; }
+.loc-rue__arrow--next { right: 7px; }
+
+.loc-rue__arrow:focus-visible {
+  outline: 2px solid rgba(249, 31, 45, .6);
+  outline-offset: 1px;
+}
+
+.loc-rue__link {
+  right: 7px;
+  bottom: 9px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .93);
+  color: #1f2937;
+  font-size: 9.5px;
+  font-weight: 600;
+  text-decoration: none;
+  box-shadow: 0 1px 4px rgba(16, 24, 40, .3);
 }
 
 .loc-tab {
@@ -909,7 +1032,7 @@
 
   .loc-map,
   .loc-media {
-    height: 180px;
+    height: 190px;
   }
 }
 
@@ -920,7 +1043,7 @@
 
   .loc-map,
   .loc-media {
-    height: 170px;
+    height: 180px;
   }
 
   .loc-bloc {
@@ -952,7 +1075,7 @@
 
   .loc-map,
   .loc-media {
-    height: 150px;
+    height: 165px;
   }
 }
 
