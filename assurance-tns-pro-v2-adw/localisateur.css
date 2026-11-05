@@ -1,0 +1,249 @@
+/* ====================================================================
+   localisateur.css — Étape « Localisez votre entreprise »
+
+   Remplace l'ancien module de localisation (localisation.css) : l'étape
+   n'affiche plus de carte maison mais le LOCALISATEUR D'ENTREPRISES
+   (dossier company-locator/) intégré en iframe, avec son récapitulatif.
+   ==================================================================== */
+
+/* ------------------- Étape « société » simplifiée ------------------- */
+/* Le nom et le code postal suffisent : l'adresse exacte est retrouvée
+   automatiquement par le localisateur à l'étape suivante. */
+.coordonnees-societe--simple {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.coordonnees-societe--simple .nom-societe {
+  flex: 1 1 240px;
+  min-width: 0;
+  width: auto;
+}
+
+.coordonnees-societe--simple .code-postale-webflow {
+  flex: 0 1 140px;
+  min-width: 0;
+  width: auto;
+}
+
+.loc-company-hint {
+  margin: 0 0 12px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #4b5563;
+}
+
+/* ------------------------ Étape localisateur ------------------------ */
+.etape-localisateur,
+.etape-localisateur .etape-content {
+  width: 100%;
+  max-width: none;
+}
+
+#loc-section .loc-head {
+  margin-bottom: 14px;
+}
+
+#loc-section .loc-head__title {
+  margin: 0 0 6px;
+  font-size: 20px;
+  line-height: 1.3;
+  color: #111827;
+}
+
+#loc-section .loc-head__text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.55;
+  color: #4b5563;
+}
+
+/* La carte, les résultats et la fiche du localisateur vivent dans l'iframe :
+   l'étape leur donne simplement un cadre lisible et une hauteur utile. */
+.loc-frame-wrap {
+  position: relative;
+  width: 100%;
+  height: clamp(520px, 78vh, 900px);
+  min-height: 480px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #fff;
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgba(17, 24, 39, .06);
+}
+
+.loc-frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #fff;
+}
+
+.loc-frame-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 20px;
+  font-size: 14px;
+  color: #4b5563;
+  background: rgba(255, 255, 255, .92);
+}
+
+.loc-frame-loading[hidden] {
+  display: none !important;
+}
+
+.loc-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid #d1d5db;
+  border-top-color: #2563eb;
+  border-radius: 50%;
+  animation: loc-spin .8s linear infinite;
+}
+
+@keyframes loc-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Repli : le localisateur ne peut pas s'afficher (file://, dossier absent). */
+.loc-fallback {
+  margin-top: 12px;
+  padding: 14px 16px;
+  border: 1px solid #fde68a;
+  border-radius: 10px;
+  background: #fffbeb;
+}
+
+.loc-fallback[hidden] {
+  display: none !important;
+}
+
+.loc-fallback__text {
+  margin: 0 0 8px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #92400e;
+}
+
+.loc-fallback__link {
+  display: inline-block;
+  font-weight: 600;
+  color: #1d4ed8;
+  text-decoration: underline;
+}
+
+/* Récapitulatif de l'entreprise choisie. */
+.loc-recap {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border: 1px solid #bbf7d0;
+  border-radius: 10px;
+  background: #f0fdf4;
+}
+
+.loc-recap[hidden] {
+  display: none !important;
+}
+
+.loc-recap__title {
+  display: block;
+  font-size: 15px;
+  color: #166534;
+}
+
+.loc-recap__line {
+  margin: 4px 0 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: #14532d;
+}
+
+.loc-recap__meta {
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  color: #15803d;
+}
+
+/* Messages d'état et garde-fou avant l'étape suivante. */
+.loc-status {
+  margin: 12px 0 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: #4b5563;
+  min-height: 20px;
+}
+
+.loc-status[data-tone="ok"] { color: #15803d; }
+.loc-status[data-tone="error"] { color: #b91c1c; }
+.loc-status[data-tone="loading"] { color: #1d4ed8; }
+
+.loc-gate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin: 10px 0 0;
+  padding: 10px 14px;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  background: #fef2f2;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: #991b1b;
+}
+
+.loc-gate[hidden] {
+  display: none !important;
+}
+
+.loc-gate__skip {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: #1d4ed8;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+#loc-section .bouton-suivant.is-blocked {
+  opacity: .6;
+  cursor: not-allowed;
+}
+
+.loc-mention {
+  margin: 14px 0 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: #6b7280;
+}
+
+.loc-hidden-fields {
+  display: none !important;
+}
+
+/* ------------------------------ Mobile ------------------------------ */
+@media (max-width: 767px) {
+  .loc-frame-wrap {
+    height: 70vh;
+    min-height: 420px;
+    border-radius: 10px;
+  }
+
+  #loc-section .loc-head__title {
+    font-size: 18px;
+  }
+
+  .coordonnees-societe--simple .nom-societe,
+  .coordonnees-societe--simple .code-postale-webflow {
+    flex: 1 1 100%;
+  }
+}

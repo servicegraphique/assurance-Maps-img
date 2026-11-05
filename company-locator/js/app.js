@@ -24,6 +24,7 @@ import * as ui from './ui.js';
 import {
   settings, history, favorites, storageInfo, purgeCache, purgeUserData,
 } from './storage.js';
+import { createEmbedBridge, selectionPayload } from './embed.js';
 
 /* ==================================================================== */
 /* 1. État applicatif                                                    */
@@ -50,14 +51,19 @@ const state = {
   historyTab: 'searches',
   mapillaryAccess: { mode: 'none', detail: '' },
   statuses: [],
+  // Mode intégré : dernier SIRET transmis au formulaire parent.
+  embedSentSiret: null,
 };
 
 const dom = {};
+/** Pont iframe ↔ formulaire : inactif hors mode `?embed=1`. */
+const embed = createEmbedBridge(typeof window === 'undefined' ? { document: null } : window);
 
 function cacheDom() {
   const ids = [
     'search-form', 'champ-nom', 'champ-cp', 'champ-ville', 'champ-adresse', 'champ-identifiant', 'champ-etat',
     'btn-search', 'btn-reset', 'form-error', 'results-list', 'results-summary', 'results-notice', 'results-status',
+    'embed-bar', 'embed-bar-title', 'embed-bar-sub', 'btn-embed-select',
     'pagination', 'champ-tri', 'btn-export-results', 'btn-export-geojson', 'detail-card', 'map', 'map-card',
     'map-overlay', 'map-readout', 'map-credits', 'btn-recenter', 'btn-copy-gps', 'btn-fullscreen', 'workspace',
     'map-street', 'map-street-prev', 'map-street-next', 'map-street-close',
@@ -174,6 +180,7 @@ async function doSearch({ page = 1, criteria = null } = {}) {
     renderResultsView();
     history.addSearch({ criteria: result.criteria, totalResults: result.totalResults });
     updateCitySuggestions(result.rows);
+    if (embed.active) embed.notifyResults(result.rows);
 
     if (result.rows.length === 1) {
       await selectEtablissement(result.rows[0].etablissement.siret, { auto: true });
@@ -201,10 +208,33 @@ async function doSearch({ page = 1, criteria = null } = {}) {
     dom['viewbar-count'].textContent = '0';
     state.map?.setRows([]);
     if (error instanceof AppError && error.code === ERR.INVALID_INPUT) setFormError(message, error.details || {});
+    if (embed.active) embed.notifyError(message);
   } finally {
     dom['btn-search'].classList.remove('is-busy');
     dom['btn-search'].disabled = false;
   }
+}
+
+/**
+ * Mode intégré : la barre du bas confirme l'entreprise choisie et la renvoie
+ * au formulaire parent. Hors iframe, elle reste masquée.
+ */
+function updateEmbedBar(fiche = state.fiche) {
+  if (!embed.active || !dom['embed-bar']) return;
+  dom['embed-bar'].hidden = false;
+  const payload = fiche ? selectionPayload(fiche) : null;
+  const hasCompany = Boolean(payload && payload.siret);
+  dom['embed-bar-title'].textContent = hasCompany
+    ? (payload.nom || 'Établissement sélectionné')
+    : 'Aucune entreprise sélectionnée';
+  dom['embed-bar-sub'].textContent = hasCompany
+    ? [payload.adresseComplete, payload.siret ? `SIRET ${payload.siret}` : ''].filter(Boolean).join(' · ')
+    : 'Choisissez votre établissement dans la liste des résultats, puis cliquez sur « Utiliser cette entreprise ».';
+  dom['btn-embed-select'].disabled = !hasCompany;
+  dom['btn-embed-select'].classList.toggle('is-sent', Boolean(hasCompany && state.embedSentSiret === payload.siret));
+  dom['btn-embed-select'].textContent = hasCompany && state.embedSentSiret === payload.siret
+    ? 'Entreprise transmise ✓'
+    : 'Utiliser cette entreprise';
 }
 
 function renderResultsView() {
@@ -312,6 +342,7 @@ async function selectEtablissement(siret, options = {}) {
     codePostal: row.etablissement.codePostal,
   });
 
+  if (embed.active) updateEmbedBar(state.fiche);
   if (!options.auto) setView('detail');
   if (window.location.hash !== `#/etablissement/${siret}`) {
     window.history.replaceState(null, '', `#/etablissement/${siret}`);
@@ -964,6 +995,21 @@ function applyBaseLayer(key) {
 /* ==================================================================== */
 
 function wireEvents() {
+  if (embed.active && dom['btn-embed-select']) {
+    dom['btn-embed-select'].addEventListener('click', () => {
+      if (!state.fiche) return;
+      const payload = selectionPayload(state.fiche);
+      if (!payload.siret) return;
+      if (embed.notifySelection(state.fiche)) {
+        state.embedSentSiret = payload.siret;
+        updateEmbedBar(state.fiche);
+        ui.toast('Entreprise transmise au formulaire.', 'success');
+      } else {
+        ui.toast('Le formulaire parent n\'a pas pu être joint. Ouvrez le localisateur dans un onglet.', 'error');
+      }
+    });
+  }
+
   dom['search-form'].addEventListener('submit', (event) => {
     event.preventDefault();
     doSearch({ page: 1 });
@@ -1146,6 +1192,21 @@ async function boot() {
 
   // Le chemin réseau (proxy local ou appel direct) est décidé avant tout appel.
   await detectProxy();
+
+  // Mode intégré (iframe du formulaire d'assurance) : la recherche part des
+  // informations déjà saisies, et l'entreprise choisie est renvoyée au parent.
+  if (embed.init()) {
+    embed.onSearch(({ nom, codePostal }) => {
+      if (!nom && !codePostal) return;
+      writeForm({ nom, codePostal });
+      doSearch();
+    });
+    if (embed.params.nom || embed.params.codePostal) {
+      writeForm({ nom: embed.params.nom, codePostal: embed.params.codePostal });
+    }
+    updateEmbedBar(null);
+    if (embed.params.nom || embed.params.codePostal) doSearch();
+  }
   images.detectMapillaryAccess().then((access) => { state.mapillaryAccess = access; });
   streetview.detectGoogleStreetView().then((google) => { state.googleStreetView = google; });
   checkServices();

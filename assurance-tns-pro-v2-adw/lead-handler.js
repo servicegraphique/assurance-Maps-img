@@ -572,11 +572,12 @@ var UBE_CONFIG = {
     }
     data.autre_info_fj = recap.join('\n');
 
-    /* --- Module de localisation (localisation.js) ---
-       Adresse, coordonnées GPS et photo du bâtiment validées par le visiteur.
-       Les champs sont préfixés loc_ ; un rappel lisible est ajouté au champ
-       autre_info_fj pour apparaître aussi dans Google Sheets. */
-    var locModule = window.LocalisationEntreprise;
+    /* --- Étape localisateur (localisateur.js) ---
+       Entreprise choisie dans le localisateur intégré : identité légale,
+       adresse exacte et coordonnées GPS. Les champs sont préfixés loc_ ; un
+       rappel lisible est ajouté au champ autre_info_fj pour apparaître aussi
+       dans Google Sheets. */
+    var locModule = window.LocalisateurEntreprise;
     if (locModule && typeof locModule.getLeadFields === 'function') {
       try {
         var locFields = locModule.getLeadFields() || {};
@@ -670,15 +671,18 @@ var UBE_CONFIG = {
       societe: data.societe || '',
       code_postal: data.code_postal || '',
       ville: data.ville || '',
+      loc_entreprise: clean(data.loc_entreprise || '', 200),
+      loc_siret: data.loc_siret || '',
+      loc_siren: data.loc_siren || '',
       loc_adresse: clean(data.loc_adresse || '', 400),
+      loc_code_postal: data.loc_code_postal || '',
+      loc_commune: clean(data.loc_commune || '', 120),
       loc_latitude: data.loc_latitude || '',
       loc_longitude: data.loc_longitude || '',
-      loc_batiment_adresse: clean(data.loc_batiment_adresse || '', 400),
-      loc_batiment_latitude: data.loc_batiment_latitude || '',
-      loc_batiment_longitude: data.loc_batiment_longitude || '',
-      loc_batiment_photo: clean(data.loc_batiment_photo || '', 500),
-      loc_batiment_vue: data.loc_batiment_vue || '',
-      loc_batiment_validee: data.loc_batiment_validee || '',
+      loc_precision: data.loc_precision || '',
+      loc_source: clean(data.loc_source || '', 120),
+      loc_naf: data.loc_naf || '',
+      loc_page: clean(data.loc_page || '', 300),
       site: '',
       solution: clean(data.reponse_1 || '', 500),
       enjeu: clean(data.autre_info_fj || '', 500),

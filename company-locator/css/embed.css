@@ -1,0 +1,106 @@
+/* ====================================================================
+   embed.css — Mode « intégré » (iframe dans le formulaire d'assurance).
+
+   Activé par `?embed=1`. Objectif : ne garder que le localisateur
+   lui-même — la recherche vient du formulaire, l'habillage public
+   (marque, recherche, paramètres, historique) disparaît, et une barre
+   de confirmation transmet l'entreprise choisie au parent.
+   ==================================================================== */
+
+body.is-embed .app-header,
+body.is-embed .status-panel,
+body.is-embed .search-card,
+body.is-embed .skip-link,
+body.is-embed .examples,
+body.is-embed .brand-footer,
+body.is-embed .app-footer {
+  display: none !important;
+}
+
+html.is-embed,
+body.is-embed {
+  background: #fff;
+}
+
+body.is-embed .app-main {
+  max-width: none;
+  padding: 10px 12px 84px;
+}
+
+body.is-embed #map {
+  height: 340px;
+}
+
+/* La barre de confirmation reste visible pendant le défilement. */
+.embed-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: 10px 14px;
+  background: var(--c-surface, #fff);
+  border-top: 1px solid var(--c-border);
+  box-shadow: 0 -6px 18px rgba(15, 23, 42, .08);
+}
+
+.embed-bar[hidden] {
+  display: none !important;
+}
+
+.embed-bar-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.embed-bar-text strong {
+  font-size: var(--fs-sm);
+  color: var(--c-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.embed-bar-sub {
+  font-size: var(--fs-xs);
+  color: var(--c-text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.embed-bar .btn {
+  flex: none;
+}
+
+body.is-embed #btn-embed-select.is-sent {
+  background: #15803d;
+  border-color: #15803d;
+}
+
+/* En mode intégré, l'export CSV/GeoJSON et les actions de bureau
+   n'ont pas de sens : le formulaire ne récupère que la fiche choisie. */
+body.is-embed .results-tools .btn {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  body.is-embed .app-main {
+    padding: 8px 8px 96px;
+  }
+
+  .embed-bar {
+    flex-wrap: wrap;
+    align-items: stretch;
+  }
+
+  .embed-bar .btn {
+    width: 100%;
+  }
+}
