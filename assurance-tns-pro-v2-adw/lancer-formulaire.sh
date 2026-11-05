@@ -21,7 +21,7 @@ if command -v node >/dev/null 2>&1; then
   echo "  [OK] Node.js détecté. Démarrage du serveur local (relais d'API inclus)."
   echo "  Pour arrêter : Ctrl + C"
   echo ""
-  STATIC_ROOT=. exec node company-locator/server.js --open --path assurance-tns-pro-v2-adw/
+  STATIC_ROOT=. exec node company-locator/server.js --open --path assurance-tns-pro-v2-adw/ --home assurance-tns-pro-v2-adw/
 fi
 
 echo "  [!] Node.js est absent : serveur statique Python (mode dégradé)."

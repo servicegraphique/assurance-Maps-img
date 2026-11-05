@@ -40,7 +40,7 @@ echo   [OK] Node.js detecte. Demarrage du serveur local...
 echo   Le navigateur va s'ouvrir sur le formulaire.
 echo   Pour arreter : Ctrl + C
 echo.
-node company-locator\server.js --open --path assurance-tns-pro-v2-adw/
+node company-locator\server.js --open --path assurance-tns-pro-v2-adw/ --home assurance-tns-pro-v2-adw/
 goto :fin
 
 :avec_python
