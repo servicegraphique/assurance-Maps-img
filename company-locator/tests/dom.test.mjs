@@ -416,6 +416,39 @@ check('La bascule carte → photo aérienne est explicite', () => {
 });
 click($('[data-baselayer="osm"]'));
 
+/* ------------------- 4e vue : Street View sur la carte ------------- */
+
+click($('[data-baselayer="street"]'));
+await waitFor(() => $('#map-street').dataset.state === 'ready', 'vue de rue de l’établissement');
+check('Le 4e bouton Street View affiche l’image de rue de la société', () => {
+  assert.ok($('[data-baselayer="street"]').classList.contains('is-active'));
+  assert.equal($('#map-street').hidden, false);
+  const img = $('#map-street-img');
+  assert.equal(img.hidden, false);
+  assert.match(img.getAttribute('src'), /example\.invalid|mapillary/);
+  assert.match($('#map-street-label').textContent, /\S/);
+  assert.match($('#map-street-credit').textContent, /Panoramax|Mapillary|CC/);
+  assert.match($('#map-credits').textContent, /Vue de rue/);
+});
+
+const rueAvant = $('#map-street-img').getAttribute('src');
+if (!$('#map-street-next').hidden) {
+  click($('#map-street-next'));
+  check('Les flèches parcourent les photographies de la rue', () => {
+    assert.notEqual($('#map-street-img').getAttribute('src'), rueAvant);
+    assert.match($('#map-street-counter').textContent, /Image \d+ sur \d+/);
+  });
+}
+
+click($('[data-baselayer="planign"]'));
+check('Le retour à un fond de plan masque la vue de rue', () => {
+  assert.equal($('#map-street').hidden, true);
+  assert.doesNotMatch($('#map-credits').textContent, /Vue de rue/);
+  assert.ok($('[data-baselayer="planign"]').classList.contains('is-active'));
+  assert.equal($('[data-baselayer="street"]').classList.contains('is-active'), false);
+});
+click($('[data-baselayer="osm"]'));
+
 /* --------------------------- Plein écran --------------------------- */
 
 click($('#btn-fullscreen'));

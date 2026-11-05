@@ -11,8 +11,8 @@ Ce document distingue honnêtement **ce qui a été exécuté et vérifié** de 
 ### 1.1 Tests unitaires — `npm test`
 
 ```
-# tests 125
-# pass  125
+# tests 126
+# pass  126
 # fail  0
 ```
 
@@ -23,7 +23,7 @@ Ce document distingue honnêtement **ce qui a été exécuté et vérifié** de 
 | `tests/unit/search.test.mjs` | Validation des critères (aucun appel réseau si invalide), recherche exacte, replis successifs signalés, filtres d'état, tris, score de pertinence, résumé |
 | `tests/unit/geocoding.test.mjs` | **Toute l'arbre de décision GPS** : BAN numéro de voie prioritaire, confirmation par `geo_id`, repli SIRENE, précision voie/commune, divergence > 300 m, coordonnées aberrantes, absence de position, non-diffusible, géocodage inverse |
 | `tests/unit/export-storage.test.mjs` | CSV (BOM, `;`, CRLF, anti-injection de formule), 23 colonnes, GeoJSON EPSG:4326, export de fiche, paramètres, **historique opt-in**, favoris, photos sourcées, purge, indisponibilité du `localStorage` |
-| `tests/unit/images.test.mjs` | Détection du mode Mapillary (proxy / direct / aucun), Panoramax `place_position` + repli `bbox`, filtrage par rayon, tri par distance, dédoublonnage, normalisation des dates/licences, statut par fournisseur, photos complémentaires (source obligatoire) |
+| `tests/unit/images.test.mjs` | Détection du mode Mapillary (proxy / direct / aucun), Panoramax `place_position` + repli `bbox`, filtrage par rayon, tri par distance, dédoublonnage, normalisation des dates/licences, statut par fournisseur, photos complémentaires (source obligatoire), **vue de rue de la carte** (`streetPhotoView` : image, crédit, compteur borné, badge 360° vs photographie plate, refus d'URL non sûre) |
 | `tests/unit/streetview.test.mjs` | Vues immersives : URL Panoramax/Mapillary/Google, cap normalisé et borné, classement sphérique avant plat, disponibilité par source, **refus des coordonnées absentes** (`Number(null) === 0`), aucune clé dans les URL, durcissement du cadre |
 | `tests/unit/transport.test.mjs` | Correspondance URL publique ↔ relais local pour les trois services, **refus des origines non déclarées**, comportement hors navigateur, propagation des erreurs HTTP métier |
 
@@ -57,7 +57,7 @@ cas du navigateur sans support des modules.
 ### 1.4 Intégration DOM — `npm run test:dom`
 
 ```
-52/52 vérifications réussies.
+55/55 vérifications réussies.
 Parcours complet validé sans erreur.
 ```
 
@@ -77,7 +77,7 @@ Parcours couvert :
 10. Onglet Images : **couche BD ORTHO® réellement ajoutée** à la carte aérienne, **3 photographies de rue** sourcées et datées.
 11. Lightbox : ouverture, compteur `1/3`, navigation `2/3`, fermeture par `Échap`.
 11 bis. **Vue immersive** : les trois sources sont proposées, Google est grisé avec sa vraie raison, **aucun iframe avant le clic**, chargement de Panoramax au clic dans un cadre `sandbox` + `no-referrer`, orientation par pas de 45° et points cardinaux répercutée dans l'URL, fermeture qui retire l'iframe, **aucune clé ni jeton dans l'URL du cadre**.
-12. Bascule fond de carte ↔ photographie aérienne, plein écran.
+12. Bascule fond de carte ↔ photographie aérienne, **4e bouton Street View** (image de rue de l'établissement affichée sans iframe, crédit, flèches entre les photographies, retour au plan qui referme la vue), plein écran.
 13. Exports : CSV résultats, GeoJSON, CSV fiche — noms de fichiers et contenus vérifiés.
 14. Enregistrement d'une fiche en favori.
 15. Paramètres : état du stockage, mode Mapillary, chemin réseau.
@@ -202,7 +202,7 @@ Configurer `server.config.json`, relancer, puis `node tests/live-smoke.mjs` : la
 
 | Domaine | Statut |
 |---|---|
-| Logique métier (recherche, normalisation, GPS, exports, stockage, images) | ✅ **125 tests unitaires exécutés et verts** |
+| Logique métier (recherche, normalisation, GPS, exports, stockage, images) | ✅ **126 tests unitaires exécutés et verts** |
 | Cascade CSS et éléments masqués | ✅ **16 vérifications exécutées et vertes** (test par mutation validé) |
 | Garde de démarrage (`file://`, chien de garde) | ✅ **14 vérifications exécutées et vertes** |
 | Interface et parcours complet | ✅ **52 vérifications DOM exécutées et vertes**, 0 erreur JS |

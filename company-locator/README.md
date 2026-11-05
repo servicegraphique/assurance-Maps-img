@@ -56,7 +56,8 @@ Application web locale, en HTML5 / CSS3 / JavaScript Vanilla + Leaflet. Aucun fr
 
 ### Carte
 
-- Fonds **Plan OpenStreetMap**, **Plan IGN**, **Photographie aérienne IGN (BD ORTHO®)** — commutables à tout moment.
+- **Quatre vues commutables à tout moment** : **Plan OSM**, **Plan IGN**, **Photo aérienne** (BD ORTHO® IGN) et **Street View**.
+- **Street View** n'est pas un fond de tuiles : l'image de rue de l'établissement consulté remplace la carte (plein cadre, adresse en pastille, crédit + licence, flèches pour parcourir les photographies de la rue, lien « Ouvrir la photo »). Les photos viennent de **Panoramax** (puis Mapillary), sans clé ni iframe ; à défaut, un message explicite s'affiche. La vue suit l'établissement sélectionné et se ferme d'un clic sur un fond de plan ou sur « Fermer la vue ».
 - Marqueurs différenciés : siège (turquoise), établissement (bleu), fermé (gris), sélectionné (orange).
 - Popup d'information au clic, centrage et zoom automatiques sur le bâtiment, cercle pointillé d'incertitude quand la position est imprécise, plein écran, échelle, copie des coordonnées, attributions permanentes.
 
@@ -352,7 +353,10 @@ Il n'existe **aucune API gratuite** permettant d'associer de façon fiable une p
 
 ## 8. Vue immersive Street View 360°
 
-L'onglet **Images** comporte une quatrième section, **D. Vue immersive**, qui ouvre un véritable viewer 360° navigable : regarder autour de soi et se déplacer le long de la rue.
+Deux accès à la vue de rue :
+
+1. le **4e bouton « Street View » de la carte**, qui affiche directement l'image de rue de l'établissement sélectionné (voir [section 1](#1-fonctionnalités)) ;
+2. l'onglet **Images**, section **D. Vue immersive**, qui ouvre un véritable viewer 360° navigable : regarder autour de soi et se déplacer le long de la rue.
 
 ### Trois sources, deux sans aucune clé
 
@@ -516,6 +520,7 @@ Le panneau **état des API** (pastille dans l'en-tête) teste réellement les ci
 | 11 | Export CSV fonctionnel | ✅ BOM + `;` + CRLF, testé |
 | 12 | Aucun abonnement payant obligatoire | ✅ zéro clé requise pour le cœur de l'application |
 | + | Vue immersive Street View 360° | ✅ Panoramax et Mapillary sans clé ; Google en option, Embed gratuit et illimité |
+| + | 4e bouton **Street View** sur la carte | ✅ image de rue de l'établissement sélectionné, sans iframe ni clé, navigation entre les photos |
 
 ---
 

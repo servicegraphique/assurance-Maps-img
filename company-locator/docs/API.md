@@ -204,6 +204,8 @@ Sans jeton configuré, **aucune requête Mapillary n'est émise** : l'interface 
 
 ## 6 bis. Vues immersives « Street View » 360°
 
+> **4e bouton de la carte.** Le bouton `data-baselayer="street"` réutilise exactement les mêmes photographies (`fetchStreetPhotos()` → Panoramax/Mapillary) mais les affiche **sans iframe** : image plein cadre superposée à la carte, crédit, compteur et lien vers la fiche source. Aucune requête n'est faite avant le clic sur le bouton.
+
 Trois sources, construites dans `js/streetview.js`. **Aucune n'est chargée avant un clic utilisateur.**
 
 ### Panoramax — viewer officiel (sans clé)
