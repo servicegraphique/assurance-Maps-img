@@ -12,6 +12,8 @@
  *               En cas de port occupé, les 9 ports suivants sont essayés.
  * Option :      --open  ouvre le navigateur au démarrage (utilisé par les lanceurs).
  *               --path <chemin> page ouverte par --open (ex. assurance-tns-pro-v2-adw/).
+ *               --home <chemin> page servie sur « / » (utile quand la racine
+ *               contient plusieurs dossiers et qu'aucun index.html n'existe).
  * Racine :      STATIC_ROOT (ou --root <dossier>) change le dossier servi.
  *               `STATIC_ROOT=.. node server.js` sert tout le dépôt, ce qui
  *               permet au formulaire d'assurance d'intégrer le localisateur
@@ -389,6 +391,12 @@ async function handlePublicProxy(request, response, url) {
 /* ------------------------------------------------------------------ */
 
 async function serveStatic(request, response, url) {
+  // Racine sans index.html : on renvoie vers la page demandée (--home).
+  if (HOME_PATH && (url.pathname === '/' || url.pathname === '')) {
+    response.writeHead(302, { Location: `/${HOME_PATH}`, 'Cache-Control': 'no-store' });
+    return response.end();
+  }
+
   const target = resolveSafePath(url.pathname);
   if (!target) {
     response.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
@@ -503,6 +511,12 @@ const pathFlag = process.argv.indexOf('--path');
 const OPEN_PATH = pathFlag > -1
   ? String(process.argv[pathFlag + 1] || '').replace(/^\/+/, '')
   : '';
+
+/** Page d'accueil facultative : redirige « / » vers un sous-dossier. */
+const homeFlag = process.argv.indexOf('--home');
+const HOME_PATH = (homeFlag > -1
+  ? String(process.argv[homeFlag + 1] || '')
+  : String(process.env.HOME_PATH || '')).replace(/^\/+/, '');
 const MAX_PORT_TRIES = 10;
 let attempt = 0;
 let activePort = PORT;

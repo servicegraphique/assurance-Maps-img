@@ -185,11 +185,13 @@ Le bouton **« Utiliser cette entreprise »** envoie `locator:selected` : SIRET,
 Le mode intégré exige une origine `http(s)://` (modules ES). Le serveur local sait servir plusieurs dossiers et conserver le relais d'API :
 
 ```bash
-STATIC_ROOT=.. node server.js --open --path assurance-tns-pro-v2-adw/
+STATIC_ROOT=.. node server.js --open --path assurance-tns-pro-v2-adw/ --home assurance-tns-pro-v2-adw/
 # → http://localhost:8080/assurance-tns-pro-v2-adw/  (formulaire + localisateur)
 ```
 
-`--path` choisit la page ouverte par `--open`. Sans `STATIC_ROOT`, le serveur sert uniquement ce dossier.
+- `--path` choisit la page ouverte par `--open` ;
+- `--home` redirige « / » vers cette page (la racine du dépôt n'a pas d'index.html) ;
+- sans `STATIC_ROOT`, le serveur sert uniquement ce dossier.
 
 Tests dédiés : `npm run test:embed` (parcours complet en mode intégré) et `tests/embed.test.mjs` (protocole `postMessage`).
 

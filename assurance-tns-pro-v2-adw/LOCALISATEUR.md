@@ -88,7 +88,7 @@ message de repli avec un lien direct, mais la localisation ne fonctionne pas.
 ```bash
 # depuis la racine du dépôt
 cd company-locator
-STATIC_ROOT=.. node server.js --open --path assurance-tns-pro-v2-adw/
+STATIC_ROOT=.. node server.js --open --path assurance-tns-pro-v2-adw/ --home assurance-tns-pro-v2-adw/
 ```
 
 ou, plus simplement, le lanceur fourni dans ce dossier :
@@ -98,6 +98,8 @@ ou, plus simplement, le lanceur fourni dans ce dossier :
 
 Le serveur local sert **le formulaire et le localisateur** sur la même origine
 et fournit le relais d'API (`/api/proxy/...`), ce qui évite tout blocage CORS.
+`--home` fait pointer « / » vers le formulaire (la racine du dépôt n'a pas
+d'`index.html`).
 
 ### En production
 
