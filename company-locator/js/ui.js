@@ -987,6 +987,83 @@ function selectControl(options, value, onChange, label) {
   return select;
 }
 
+/* ==================================================================== */
+/* 8 bis. Vue de rue superposée à la carte (4e bouton « Street View »)   */
+/* ==================================================================== */
+
+/**
+ * Met à jour la vue de rue affichée par-dessus la carte.
+ *
+ * @param {HTMLElement} container #map-street
+ * @param {{status: 'loading'|'ready'|'empty'|'error', photo: object|null,
+ *   message?: string, label?: string}} view
+ */
+export function renderMapStreet(container, { status = 'loading', photo = null, message = '', label = '' } = {}) {
+  if (!container) return;
+  const find = (id) => container.querySelector(`#${id}`);
+  const img = find('map-street-img');
+  const badge = find('map-street-badge');
+  const credit = find('map-street-credit');
+  const labelNode = find('map-street-label');
+  const counter = find('map-street-counter');
+  const openLink = find('map-street-open');
+  const prev = find('map-street-prev');
+  const next = find('map-street-next');
+  const stateText = find('map-street-state-text');
+
+  const ready = status === 'ready' && photo;
+  container.dataset.state = ready ? 'ready' : status;
+  container.setAttribute('aria-busy', String(status === 'loading'));
+
+  if (ready) {
+    if (img) {
+      const url = safeUrl(photo.url) || '';
+      if (img.getAttribute('src') !== url) img.setAttribute('src', url);
+      img.alt = photo.alt || '';
+      img.classList.toggle('is-pano', Boolean(photo.isPano));
+      img.hidden = false;
+    }
+    if (badge) badge.textContent = photo.badge || 'Street View';
+    if (credit) credit.textContent = photo.credit || '';
+    if (counter) {
+      counter.textContent = photo.total > 1 ? photo.counter : '';
+      counter.hidden = photo.total <= 1;
+    }
+    const multiple = photo.total > 1;
+    if (prev) prev.hidden = !multiple;
+    if (next) next.hidden = !multiple;
+    if (openLink) {
+      const href = safeUrl(photo.pageUrl) || '';
+      if (href) {
+        openLink.setAttribute('href', href);
+        openLink.hidden = false;
+      } else {
+        openLink.removeAttribute('href');
+        openLink.hidden = true;
+      }
+    }
+  } else {
+    if (img) {
+      img.hidden = true;
+      img.removeAttribute('src');
+      img.classList.remove('is-pano');
+      img.alt = '';
+    }
+    if (badge) badge.textContent = 'Street View';
+    if (credit) credit.textContent = '';
+    if (counter) { counter.textContent = ''; counter.hidden = true; }
+    if (prev) prev.hidden = true;
+    if (next) next.hidden = true;
+    if (openLink) { openLink.removeAttribute('href'); openLink.hidden = true; }
+    if (stateText) stateText.textContent = message || 'Recherche d’une image de rue…';
+  }
+
+  if (labelNode) {
+    labelNode.textContent = label || '';
+    labelNode.hidden = !label;
+  }
+}
+
 export function renderSettings(container, { settings: current, info, mapillaryAccess, transport, googleStreetView }, handlers) {
   clear(container);
 

@@ -10,7 +10,7 @@
  */
 
 import config from './config.js';
-import { AppError, ERR, toUserMessage, debounce, formatCoords, isValidCodePostal } from './utils.js';
+import { AppError, ERR, toUserMessage, debounce, formatCoords, isValidCodePostal, isPlausibleFranceCoords } from './utils.js';
 import { loadLabels } from './labels.js';
 import * as api from './entreprise-api.js';
 import { resolvePosition, reverseGeocode, ping as pingGeocoding } from './geocoding.js';
@@ -38,6 +38,8 @@ const state = {
   fiche: null,
   positions: new Map(),
   street: { loading: false, photos: [], sources: [], error: null },
+  // 4e vue de la carte : image de rue de l'établissement sélectionné.
+  mapStreet: { active: false, loading: false, photos: [], index: 0, target: null, error: null },
   // D. Vue immersive : rien n'est chargé tant que `loaded` reste faux.
   streetview: { providerKey: null, loaded: false, heading: 0, photoIndex: 0 },
   googleStreetView: { configured: false, checked: false, message: '' },
@@ -58,6 +60,7 @@ function cacheDom() {
     'btn-search', 'btn-reset', 'form-error', 'results-list', 'results-summary', 'results-notice', 'results-status',
     'pagination', 'champ-tri', 'btn-export-results', 'btn-export-geojson', 'detail-card', 'map', 'map-card',
     'map-overlay', 'map-readout', 'map-credits', 'btn-recenter', 'btn-copy-gps', 'btn-fullscreen', 'workspace',
+    'map-street', 'map-street-prev', 'map-street-next', 'map-street-close',
     'btn-status', 'status-panel', 'status-list', 'btn-recheck', 'btn-settings', 'modal-settings', 'settings-body',
     'btn-history', 'modal-history', 'history-body', 'btn-export-favorites', 'viewbar-count', 'villes-suggestions',
     'boot-error', 'advanced-search',
@@ -293,6 +296,8 @@ async function selectEtablissement(siret, options = {}) {
 
   state.map?.select(siret, { position: state.fiche.position, pan: true, openPopup: !options.fromMap });
   dom['btn-copy-gps'].disabled = !state.fiche.position;
+  // La vue de rue éventuellement ouverte suit l'établissement consulté.
+  if (state.mapStreet.active) openMapStreet({ force: true });
   dom['btn-copy-gps'].dataset.siret = siret;
 
   document.querySelectorAll('.result-item').forEach((item) => {
@@ -783,7 +788,167 @@ function updateStatusPill() {
   }
 }
 
+/* ------------------- 4e vue : Street View sur la carte ------------- */
+
+const MAP_STREET_KEY = 'street';
+
+/** Point et libellé de la vue de rue : fiche ouverte, sinon sélection, sinon centre. */
+function mapStreetTarget() {
+  const fiche = state.fiche;
+  if (fiche?.position) {
+    const e = fiche.row.etablissement;
+    return {
+      siret: e.siret,
+      lat: Number(fiche.position.lat),
+      lon: Number(fiche.position.lon),
+      label: [e.nomAffiche, e.adresse].filter(Boolean).join(' — '),
+    };
+  }
+  const siret = state.map?.getSelected();
+  const row = siret ? state.rows.find((r) => r.etablissement.siret === siret) : null;
+  if (row) {
+    const known = state.positions.get(siret);
+    const lat = Number(known?.lat ?? row.etablissement.latitude);
+    const lon = Number(known?.lon ?? row.etablissement.longitude);
+    if (isPlausibleFranceCoords(lat, lon)) {
+      return {
+        siret,
+        lat,
+        lon,
+        label: [row.etablissement.nomAffiche, row.etablissement.adresse].filter(Boolean).join(' — '),
+      };
+    }
+  }
+  const center = state.map?.getCenter();
+  if (center && isPlausibleFranceCoords(center.lat, center.lon)) {
+    return { siret: null, lat: center.lat, lon: center.lon, label: 'Centre de la carte' };
+  }
+  return null;
+}
+
+function renderMapStreet() {
+  const { loading, photos, index, target, error } = state.mapStreet;
+  let status = 'loading';
+  let message = 'Recherche d’une image de rue autour de ce point…';
+  let photo = null;
+  if (!loading) {
+    if (error) {
+      status = 'error';
+      message = error;
+    } else if (!photos.length) {
+      status = 'empty';
+      message = 'Aucune photographie de rue n’est disponible pour ce point. Élargissez le rayon de recherche dans les paramètres, déplacez la carte, ou revenez au plan.';
+    } else {
+      photo = images.streetPhotoView(photos[index], { index, total: photos.length });
+      if (photo) {
+        status = 'ready';
+      } else {
+        status = 'empty';
+        message = 'La photographie reçue n’est pas affichable (URL non sûre ou absente). Aucune image de substitution n’est utilisée.';
+      }
+    }
+  }
+  ui.renderMapStreet(dom['map-street'], {
+    status, photo, message, label: target?.label || '',
+  });
+  renderMapStreetCredits(status, photo);
+}
+
+/**
+ * Le pied de carte reste visible sous la vue de rue : il doit donc décrire
+ * l'image réellement affichée, jamais un fond de plan absent.
+ */
+function renderMapStreetCredits(status, photo) {
+  const node = dom['map-credits'];
+  if (!node) return;
+  if (status === 'ready' && photo) {
+    node.textContent = `Vue de rue — ${photo.credit || 'crédit non fourni par la source'}`;
+  } else if (status === 'loading') {
+    node.textContent = 'Vue de rue — recherche de la photographie…';
+  } else {
+    node.textContent = 'Vue de rue — aucune photographie affichée (pas d’image de substitution).';
+  }
+}
+
+async function openMapStreet({ force = false } = {}) {
+  const target = mapStreetTarget();
+  if (state.mapStreet.creditsBackup == null && dom['map-credits']) {
+    state.mapStreet.creditsBackup = dom['map-credits'].textContent;
+  }
+  state.mapStreet = { ...state.mapStreet, active: true, seq: (state.mapStreet.seq || 0) + 1 };
+  const seq = state.mapStreet.seq;
+  dom.baselayerButtons.forEach((button) => {
+    button.classList.toggle('is-active', button.dataset.baselayer === MAP_STREET_KEY);
+  });
+  dom['map-street'].hidden = false;
+
+  if (!target) {
+    state.mapStreet = {
+      ...state.mapStreet,
+      active: true,
+      loading: false,
+      photos: [],
+      index: 0,
+      target: null,
+      error: 'Sélectionnez un établissement — ou déplacez la carte sur l’adresse — pour afficher sa vue de rue.',
+    };
+    renderMapStreet();
+    return;
+  }
+
+  const same = state.mapStreet.target
+    && state.mapStreet.target.lat === target.lat
+    && state.mapStreet.target.lon === target.lon;
+  if (!force && same && (state.mapStreet.photos.length || state.mapStreet.error)) {
+    renderMapStreet();
+    return;
+  }
+
+  state.mapStreet = { ...state.mapStreet, active: true, loading: true, photos: [], index: 0, target, error: null };
+  renderMapStreet();
+
+  const current = settings.get();
+  try {
+    const result = await images.fetchStreetPhotos({
+      lat: target.lat,
+      lon: target.lon,
+      radiusM: current.streetRadiusM,
+      providers: current.streetProviders,
+      limit: config.imagery.maxStreetPhotos,
+    });
+    if (!state.mapStreet.active || state.mapStreet.seq !== seq) return;
+    state.mapStreet = { ...state.mapStreet, loading: false, photos: result.photos, index: 0, error: null };
+  } catch (error) {
+    if (!state.mapStreet.active || state.mapStreet.seq !== seq) return;
+    state.mapStreet = { ...state.mapStreet, loading: false, photos: [], error: toUserMessage(error) };
+  }
+  renderMapStreet();
+}
+
+function closeMapStreet() {
+  state.mapStreet = { ...state.mapStreet, active: false };
+  if (dom['map-street']) dom['map-street'].hidden = true;
+  if (dom['map-credits'] && state.mapStreet.creditsBackup != null) {
+    dom['map-credits'].textContent = state.mapStreet.creditsBackup;
+  }
+  state.mapStreet.creditsBackup = null;
+}
+
+function stepMapStreet(delta) {
+  const total = state.mapStreet.photos.length;
+  if (!total) return;
+  state.mapStreet.index = (state.mapStreet.index + delta + total) % total;
+  renderMapStreet();
+}
+
 function applyBaseLayer(key) {
+  // « Street View » n'est pas un fond de tuiles : c'est une image de rue
+  // superposée à la carte, centrée sur l'établissement affiché.
+  if (key === MAP_STREET_KEY) {
+    openMapStreet();
+    return;
+  }
+  closeMapStreet();
   const applied = state.map?.setBaseLayer(key);
   dom.baselayerButtons.forEach((button) => button.classList.toggle('is-active', button.dataset.baselayer === applied));
 }
@@ -873,6 +1038,13 @@ function wireEvents() {
 
   dom.baselayerButtons.forEach((button) => {
     button.addEventListener('click', () => applyBaseLayer(button.dataset.baselayer));
+  });
+
+  dom['map-street-prev'].addEventListener('click', () => stepMapStreet(-1));
+  dom['map-street-next'].addEventListener('click', () => stepMapStreet(1));
+  dom['map-street-close'].addEventListener('click', () => {
+    const previous = state.map?.getBaseLayer() || settings.get().defaultBaseLayer || config.map.defaultBaseLayer;
+    applyBaseLayer(previous);
   });
 
   dom['btn-recenter'].addEventListener('click', () => {

@@ -10,6 +10,7 @@ import { readFileSync } from 'node:fs';
 import {
   fetchPanoramax, fetchMapillary, fetchStreetPhotos, detectMapillaryAccess,
   getComplementaryPhotos, addComplementaryPhoto, removeComplementaryPhoto,
+  streetPhotoView,
 } from '../../js/images.js';
 import { purgeUserData } from '../../js/storage.js';
 import { ERR } from '../../js/utils.js';
@@ -166,4 +167,45 @@ test('Photos complémentaires : URL et source obligatoires, stockage local', () 
   assert.equal(photos[0].providerName, 'Photo ajoutée manuellement');
   removeComplementaryPhoto(siret, photos[0].id);
   assert.equal(getComplementaryPhotos(siret).length, 0);
+});
+
+test('Vue de rue de la carte : image, crédit, compteur et lien source', () => {
+  const photo = {
+    id: 'panoramax:abc',
+    provider: 'panoramax',
+    providerName: 'Panoramax',
+    thumbUrl: 'https://exemple.invalid/thumb.jpg',
+    fullUrl: 'https://exemple.invalid/sd.jpg',
+    capturedAt: '2024-05-14T10:22:00Z',
+    isPano: true,
+    author: 'Instance de test',
+    licence: 'CC-BY-SA-4.0',
+    distanceM: 12,
+    pageUrl: 'https://api.panoramax.xyz/#focus=pic&pic=abc',
+  };
+
+  const view = streetPhotoView(photo, { index: 1, total: 3 });
+  assert.equal(view.url, 'https://exemple.invalid/sd.jpg');
+  assert.equal(view.thumbUrl, 'https://exemple.invalid/thumb.jpg');
+  assert.equal(view.isPano, true);
+  assert.match(view.badge, /360°/);
+  assert.match(view.credit, /Panoramax/);
+  assert.match(view.credit, /CC-BY-SA-4\.0/);
+  assert.match(view.credit, /prise de vue 14\/05\/2024/);
+  assert.match(view.credit, /à 12 m/);
+  assert.equal(view.counter, 'Image 2 sur 3');
+  assert.equal(view.pageUrl, photo.pageUrl);
+
+  // Une photographie plate n'est jamais présentée comme immersive.
+  const flat = streetPhotoView({ ...photo, isPano: false });
+  assert.match(flat.badge, /Photographie de rue/);
+  assert.doesNotMatch(flat.badge, /360°/);
+
+  // Index hors bornes ramené dans la série.
+  assert.equal(streetPhotoView(photo, { index: 9, total: 2 }).counter, 'Image 2 sur 2');
+  assert.equal(streetPhotoView(photo, { index: -3, total: 2 }).counter, 'Image 1 sur 2');
+
+  // Aucune URL affichable : rien n'est inventé.
+  assert.equal(streetPhotoView({ ...photo, fullUrl: 'javascript:alert(1)', thumbUrl: '' }), null);
+  assert.equal(streetPhotoView(null), null);
 });

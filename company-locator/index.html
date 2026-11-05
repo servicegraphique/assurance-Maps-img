@@ -203,6 +203,9 @@
                 <button type="button" class="seg-btn" data-baselayer="ortho">
                   <span class="icon icon--satellite" aria-hidden="true"></span>Photo aérienne
                 </button>
+                <button type="button" class="seg-btn" data-baselayer="street">
+                  <span class="icon icon--camera" aria-hidden="true"></span>Street View
+                </button>
               </div>
               <button type="button" id="btn-recenter" class="icon-btn" title="Recentrer sur l'ensemble des résultats" aria-label="Recentrer la carte">
                 <span class="icon icon--target" aria-hidden="true"></span>
@@ -219,6 +222,31 @@
           <div class="map-wrap">
             <div id="map" role="application" aria-label="Carte interactive des établissements"></div>
             <div id="map-overlay" class="map-overlay" hidden></div>
+
+            <!-- 4e vue : image de rue (Street View) de l'établissement -->
+            <section id="map-street" class="map-street" aria-label="Vue de rue de l’établissement" data-state="loading" hidden>
+              <img id="map-street-img" class="map-street-img" alt="" loading="lazy" hidden>
+              <div class="map-street-scrim" aria-hidden="true"></div>
+              <div class="map-street-head">
+                <span id="map-street-badge" class="badge badge-accent">Street View</span>
+                <span id="map-street-credit" class="map-street-credit"></span>
+              </div>
+              <p id="map-street-label" class="map-street-label" hidden></p>
+              <button type="button" id="map-street-prev" class="map-street-arrow map-street-arrow--prev" aria-label="Image de rue précédente" hidden>
+                <span class="icon icon--chevron-left" aria-hidden="true"></span>
+              </button>
+              <button type="button" id="map-street-next" class="map-street-arrow map-street-arrow--next" aria-label="Image de rue suivante" hidden>
+                <span class="icon icon--chevron-right" aria-hidden="true"></span>
+              </button>
+              <div id="map-street-state" class="map-street-state">
+                <p id="map-street-state-text">Recherche d’une image de rue…</p>
+              </div>
+              <div class="map-street-foot">
+                <span id="map-street-counter" class="map-street-counter" hidden></span>
+                <a id="map-street-open" class="btn btn-sm" target="_blank" rel="noopener noreferrer" hidden>Ouvrir la photo</a>
+                <button type="button" id="map-street-close" class="btn btn-sm btn-ghost">Fermer la vue</button>
+              </div>
+            </section>
           </div>
 
           <div class="map-foot">

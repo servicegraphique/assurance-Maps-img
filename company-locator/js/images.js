@@ -18,7 +18,7 @@
 import config from './config.js';
 import {
   AppError, ERR, RateLimiter, TtlCache, fetchJson, haversineM, bboxAround,
-  safeUrl, truncate,
+  safeUrl, truncate, formatDateFr,
 } from './utils.js';
 import { cacheStore, userPhotos } from './storage.js';
 import { fetchServiceJson } from './transport.js';
@@ -350,4 +350,48 @@ export function addComplementaryPhoto(siret, { url, source, licence, date, note 
 
 export function removeComplementaryPhoto(siret, id) {
   userPhotos.remove(siret, id);
+}
+
+/* ==================================================================== */
+/* 5. Vue de rue affichée directement sur la carte                       */
+/* ==================================================================== */
+
+/**
+ * Normalise la photographie affichée par le 4e bouton « Street View » de la
+ * carte : image plein cadre, crédit lisible, lien vers la fiche source,
+ * compteur de navigation. Fonction PURE (aucun réseau, aucun DOM).
+ *
+ * @param {object} photo photographie normalisée par fetchStreetPhotos()
+ * @param {{index?: number, total?: number}} options position dans la série
+ * @returns {null|{url: string, thumbUrl: string, isPano: boolean, badge: string,
+ *   credit: string, pageUrl: string, counter: string, alt: string,
+ *   index: number, total: number}}
+ */
+export function streetPhotoView(photo, { index = 0, total = 1 } = {}) {
+  if (!photo || typeof photo !== 'object') return null;
+  const url = safeUrl(photo.fullUrl || photo.thumbUrl);
+  if (!url) return null;
+
+  const credit = [photo.providerName || 'Source ouverte'];
+  if (photo.author) credit.push(photo.author);
+  if (photo.licence) credit.push(photo.licence);
+  const captured = photo.capturedAt ? formatDateFr(photo.capturedAt) : '';
+  if (captured) credit.push(`prise de vue ${captured}`);
+  if (Number.isFinite(photo.distanceM)) credit.push(`à ${photo.distanceM} m`);
+
+  const count = Math.max(1, Number(total) || 1);
+  const position = Math.min(Math.max(Number(index) || 0, 0), count - 1);
+
+  return {
+    url,
+    thumbUrl: safeUrl(photo.thumbUrl) || url,
+    isPano: Boolean(photo.isPano),
+    badge: photo.isPano ? 'Street View 360°' : 'Photographie de rue',
+    credit: credit.join(' · '),
+    pageUrl: safeUrl(photo.pageUrl) || '',
+    counter: `Image ${position + 1} sur ${count}`,
+    alt: `Vue de rue — ${photo.providerName || 'source ouverte'}${captured ? `, ${captured}` : ''}`,
+    index: position,
+    total: count,
+  };
 }
