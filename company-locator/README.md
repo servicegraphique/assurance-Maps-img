@@ -262,6 +262,7 @@ le serveur ajoute l'en-tête `Authorization: OAuth <jeton>`. `server.config.json
 | `État : invalid` | valeur tronquée (copie partielle) | recopiez le Client Token en entier : `MLY|id|secret` |
 | `--check-mapillary` → `HTTP 401` | jeton révoqué ou Client ID utilisé comme jeton | régénérez le token sur le tableau de bord |
 | `✘ Impossible de joindre Mapillary` | réseau sortant bloqué | autorisez `graph.mapillary.com` |
+| `server.config.json illisible` (BOM) | fichier écrit par le Bloc-notes / PowerShell 5.1 | tolérez : l'application ignore le BOM ; sinon `node server.js --set-mapillary-token "MLY|…"` réécrit un fichier propre |
 | `État : missing` + `Fichier : introuvable` | `server.config.json` absent (normal après un clone : il n'est jamais versionné) | `node server.js --set-mapillary-token "MLY|…"`, ou copier `server.config.example.json` |
 | `configured: false` dans `/api/mapillary/status` | fichier absent ou mal placé | `server.config.json` dans `company-locator/` (aussi lu dans la racine servie) |
 

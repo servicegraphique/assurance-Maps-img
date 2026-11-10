@@ -292,6 +292,21 @@ test('--set-mapillary-token : écrit le jeton (mode 600) et conserve les autres 
   assert.ok(check.output.includes(file), 'le fichier utilisé est affiché');
 });
 
+test('Fichier écrit avec un BOM (Bloc-notes, PowerShell 5.1) : toujours lisible', async () => {
+  const file = path.join(TMP, 'avec-bom.json');
+  // PowerShell `Set-Content -Encoding UTF8` et le Bloc-notes ajoutent ce BOM.
+  writeFileSync(file, `\uFEFF${JSON.stringify({ mapillaryToken: TOKEN })}`, 'utf8');
+
+  const check = await runCli(['--check-mapillary'], { CLF_CONFIG_FILE: file });
+  assert.match(check.output, /État {4}: ready/, 'le BOM ne doit pas rendre le fichier illisible');
+  assert.ok(!check.output.includes(SECRET));
+
+  // Réécriture par --set-mapillary-token : les clés restent, le BOM disparaît.
+  const set = await runCli(['--set-mapillary-token', TOKEN], { CLF_CONFIG_FILE: file });
+  assert.equal(set.code, 0, set.output);
+  assert.ok(!readFileSync(file, 'utf8').startsWith('\uFEFF'));
+});
+
 test('--set-mapillary-token : un jeton invalide est refusé et n’écrit rien', async () => {
   const file = path.join(TMP, 'jamais-ecrit.json');
   const { code, output } = await runCli(['--set-mapillary-token', CLIENT_ID], { CLF_CONFIG_FILE: file });
