@@ -11,8 +11,8 @@ Ce document distingue honnêtement **ce qui a été exécuté et vérifié** de 
 ### 1.1 Tests unitaires — `npm test`
 
 ```
-# tests 140
-# pass  140
+# tests 149
+# pass  149
 # fail  0
 ```
 
@@ -26,8 +26,35 @@ Ce document distingue honnêtement **ce qui a été exécuté et vérifié** de 
 | `tests/unit/images.test.mjs` | Détection du mode Mapillary (proxy / direct / aucun), Panoramax `place_position` + repli `bbox`, filtrage par rayon, tri par distance, dédoublonnage, normalisation des dates/licences, statut par fournisseur, photos complémentaires (source obligatoire), **vue de rue de la carte** (`streetPhotoView` : image, crédit, compteur borné, badge 360° vs photographie plate, refus d'URL non sûre), **cadrage orienté vers l'immeuble** (`bearingDeg`, `panoFrame` : panorama recadré face au bâtiment, décalage borné, centrage par défaut, photographie plate non recadrée) et **choix de la photographie** (`pickStreetPhotoIndex` : façade proche prioritaire, photo plate regardant ailleurs pénalisée, panorama recentrable) |
 | `tests/unit/streetview.test.mjs` | Vues immersives : URL Panoramax/Mapillary/Google, cap normalisé et borné, classement sphérique avant plat, disponibilité par source, **refus des coordonnées absentes** (`Number(null) === 0`), aucune clé dans les URL, durcissement du cadre |
 | `tests/unit/contact.test.mjs` | **Coordonnées de contact saisies** (l'API officielle ne les publie pas) : normalisation des numéros français (`+33`, `0033`, séparateurs), refus des numéros incomplets, détection fixe/mobile (`0[1-589]` vs `0[67]`), affichage `01 23 45 67 89`, liens `tel:+33…`/`mailto:` jamais fabriqués depuis une saisie invalide, validation croisée (un mobile dans le champ fixe est signalé), enregistrement local par SIRET, purge, présence dans l'export de fiche et dans la charge utile transmise au formulaire |
+| `tests/unit/mapillary-config.test.mjs` | **Diagnostic du jeton Mapillary** : nettoyage des valeurs copiées-collées (`Bearer`, guillemets, espaces), distinction Client Token (`MLY|id|secret`) / Client ID (nombre) / secret seul / forme inconnue, composition du jeton à partir de `mapillaryClientId` + `mapillaryClientSecret`, messages actionnables, et **absence de tout fragment de secret dans la charge utile `/api/mapillary/status`** |
 | `tests/embed.test.mjs` | **Mode intégré** (`?embed=1`) : lecture des paramètres `nom`/`cp`, charge utile transmise au formulaire, protocole `postMessage` (prêt, résultats, erreur, sélection), recherche demandée par le parent, messages d'une autre origine ignorés, inactivité hors mode intégré |
 | `tests/unit/transport.test.mjs` | Correspondance URL publique ↔ relais local pour les trois services, **refus des origines non déclarées**, comportement hors navigateur, propagation des erreurs HTTP métier |
+
+### 1.1 bis Serveur local et jeton Mapillary — `npm run test:server`
+
+```
+# tests 5
+# pass  5
+# fail  0
+```
+
+Ce test **démarre le vrai `server.js`** (processus séparé, port dédié, requêtes HTTP
+réelles) dans quatre configurations de jeton, puis vérifie :
+
+1. **Client ID seul** → `mapillaryState: "incomplete"`, `/api/mapillary/images` répond
+   **501** avec une consigne (« est le Client ID, pas un jeton ») et **aucun appel amont**
+   n'est tenté ; ni le secret ni le Client ID n'apparaissent dans les réponses.
+2. **Client ID + Client Secret** → jeton `MLY|…` **composé côté serveur**, état `ready`,
+   `tokenLength > 0`, et le JSON de statut ne contient **aucun fragment** du secret.
+   La bannière de démarrage annonce le jeton sans l'imprimer.
+3. **Client Token complet** → état `ready`, secret absent des réponses.
+4. **Jeton mal formé** (`MLY|pas-complet`) → état `invalid` et message explicite.
+5. **`node server.js --check-mapillary`** → verdict en ligne de commande, **code de sortie
+   1** sans jeton utilisable, secret jamais imprimé.
+
+> Aucune requête ne part réellement vers Mapillary dans ces tests : seuls les cas
+> `ready` vérifient l'état local. Le verdict « ✔ Jeton accepté » de `--check-mapillary`
+> doit être confirmé sur votre poste (`graph.mapillary.com` est inaccessible ici).
 
 ### 1.2 Cascade CSS — `npm run test:css`
 
@@ -113,7 +140,12 @@ Exécutées contre `node server.js` en fonctionnement :
 | **63 ressources locales** (HTML, CSS, JS, SVG, JSON, PNG, polices Leaflet) | **toutes en HTTP 200**, aucune référence cassée |
 | Types MIME (`text/html`, `text/javascript`, `text/css`, `image/svg+xml`, `application/json`, `image/png`) | conformes |
 | `GET /api/health` | `{"ok":true,"app":"Company Locator France",…}` |
-| `GET /api/mapillary/status` sans jeton | `{"configured":false,"mode":"none",…}` — message d'aide |
+| `GET /api/mapillary/status` sans jeton | `{"configured":false,"mode":"none","state":"missing",…}` — message d'aide |
+| `GET /api/mapillary/status` avec un **Client ID seul** | `state:"incomplete"`, message « est le Client ID, pas un jeton », `tokenLength:0` — **aucun appel amont** |
+| `GET /api/mapillary/images` avec un Client ID seul | **HTTP 501** « Configuration Mapillary incomplète », aucune requête vers Mapillary |
+| `GET /api/mapillary/status` avec Client ID + Secret | `configured:true`, `state:"ready"`, `tokenLength>0`, **ni l'ID ni le secret dans la réponse** |
+| `GET /api/health` | expose `mapillaryConfigured` **et** `mapillaryState` (`ready`/`incomplete`/`invalid`/`missing`) |
+| `node server.js --check-mapillary` sans jeton utilisable | verdict lisible, **code de sortie 1**, secret jamais imprimé |
 | `GET /api/mapillary/images` sans jeton | HTTP 501 explicite, **aucun appel anonyme** |
 | Chargement d'un jeton via `server.config.json` + `/api/reload-token` | `configured:true`, **jeton absent de toutes les réponses** |
 | `GET /server.config.json` | **HTTP 403** — le secret n'est jamais téléchargeable |
@@ -151,6 +183,7 @@ Exécutées contre `node server.js` en fonctionnement :
 | **Google Maps Embed gratuit** | `developers.google.com/maps/documentation/embed/quickstart` et `usage-and-billing` | Gratuit, **illimité**, sans limite QPS ni journalière — **mais** projet Cloud avec facturation activée obligatoire |
 | Viewer Panoramax trop lourd à embarquer | `registry.npmjs.org/@panoramax/web-viewer` | 2,8 Mo + MapLibre + Lit → **iframe officiel retenu** plutôt qu'un nouveau framework |
 | Licence Leaflet 1.9.4 | `registry.npmjs.org/leaflet/1.9.4` | BSD-2-Clause, fichier `LICENSE` inclus |
+| **Forme du jeton Mapillary** | Tableau de bord Mapillary, documentation API v4 et retours de la communauté (forum Mapillary, connecteurs) | Le jeton utilisable est le **Client Token** `MLY|<client_id>|<client_secret>` ; le **Client ID** seul (nombre) ne permet aucun appel. Vérifié et encodé dans `js/mapillary-config.js` |
 | **Aucune coordonnée de contact dans l'API** | Schéma officiel `search-api` (`app/models/unite_legale.py`, `formatters/etablissements.py`) et réponses réelles du service | Ni téléphone, ni e-mail, ni personne à joindre : le champ `contact` du service porte l'**adresse de contact** de l'INSEE, pas un numéro. D'où la saisie manuelle, stockée localement et signalée comme telle |
 
 ---
@@ -161,7 +194,9 @@ Exécutées contre `node server.js` en fonctionnement :
 
 Par conséquent, **n'ont pas été exécutés depuis cet environnement** :
 
-- les appels HTTP réels aux API publiques ;
+- les appels HTTP réels aux API publiques, dont **Mapillary** (`graph.mapillary.com`)
+  — d'où le test d'intégration local du serveur, et la commande `--check-mapillary`
+  prévue pour votre poste ;
 - le rendu visuel dans un navigateur réel (captures d'écran, mise en page effective sur mobile) ;
 - la réception réelle des tuiles IGN et des photographies Panoramax.
 
@@ -211,7 +246,18 @@ node server.js
 
 ### Étape 4 — Mapillary (optionnel)
 
-Configurer `server.config.json`, relancer, puis `node tests/live-smoke.mjs` : la ligne Mapillary doit passer au vert, et les photos Mapillary apparaître à côté de celles de Panoramax dans l'onglet Images.
+1. Dans <https://www.mapillary.com/dashboard/developers>, ouvrez votre application
+   (« View ») et copiez le **Client Token** complet — `MLY|<client_id>|<client_secret>`.
+   Le **Client ID** seul (un nombre) ne suffit pas.
+2. Collez-le dans `company-locator/server.config.json`, soit dans `mapillaryToken`,
+   soit en séparant `mapillaryClientId` + `mapillaryClientSecret`.
+3. `cd company-locator && node server.js --check-mapillary` → attendu :
+   `✔ Jeton accepté par Mapillary (HTTP 200)`.
+4. `node server.js`, puis ouvrir les paramètres de l'application : le panneau
+   « Mapillary » doit afficher **« proxy local sécurisé »**. Dans le panneau d'état des
+   services, la ligne Mapillary passe au vert, et les photos Mapillary apparaissent à
+   côté de celles de Panoramax dans l'onglet Images.
+5. `node tests/live-smoke.mjs` : la ligne Mapillary doit également passer au vert.
 
 ---
 
@@ -219,7 +265,8 @@ Configurer `server.config.json`, relancer, puis `node tests/live-smoke.mjs` : la
 
 | Domaine | Statut |
 |---|---|
-| Logique métier (recherche, normalisation, GPS, exports, stockage, images, contacts) | ✅ **140 tests unitaires exécutés et verts** |
+| Logique métier (recherche, normalisation, GPS, exports, stockage, images, contacts, jeton Mapillary) | ✅ **149 tests unitaires exécutés et verts** |
+| Serveur local et configuration du jeton Mapillary | ✅ **5 tests d'intégration exécutés et verts** (processus réel, HTTP réel) |
 | Cascade CSS et éléments masqués | ✅ **17 vérifications exécutées et vertes** (test par mutation validé) |
 | Garde de démarrage (`file://`, chien de garde) | ✅ **14 vérifications exécutées et vertes** |
 | Interface et parcours complet | ✅ **59 vérifications DOM exécutées et vertes**, 0 erreur JS |

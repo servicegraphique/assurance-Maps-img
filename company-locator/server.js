@@ -21,6 +21,9 @@
  *               http://localhost:8080/assurance-tns-pro-v2-adw/
  * Jeton :       variable d'environnement MAPILLARY_TOKEN
  *               ou fichier server.config.json { "mapillaryToken": "MLY|…" }
+ *               (le Client ID + Client Secret du tableau de bord suffisent :
+ *               le jeton « MLY|<id>|<secret> » est composé automatiquement)
+ * Option :      --check-mapillary  vérifie le jeton auprès de Mapillary et sort.
  *
  * Aucune base de données, aucun compte, aucun service payant.
  */
@@ -30,6 +33,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { resolveMapillaryToken, mapillaryStatusPayload, MAPILLARY_DASHBOARD_URL } from './js/mapillary-config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -56,20 +60,64 @@ const MAPILLARY_GRAPH = 'https://graph.mapillary.com';
 /* 1. Jeton Mapillary (jamais renvoyé au client)                       */
 /* ------------------------------------------------------------------ */
 
-function readToken() {
-  if (process.env.MAPILLARY_TOKEN?.trim()) return process.env.MAPILLARY_TOKEN.trim();
+/**
+ * Lit la configuration Mapillary, sans jamais la journaliser.
+ *
+ * Trois formes acceptées, dans cet ordre de priorité :
+ *   1. `MAPILLARY_TOKEN` / `server.config.json { "mapillaryToken": "MLY|…" }` ;
+ *   2. `MAPILLARY_CLIENT_ID` + `MAPILLARY_CLIENT_SECRET` (le jeton est composé) ;
+ *   3. `mapillaryClientId` + `mapillaryClientSecret` dans server.config.json.
+ *
+ * La valeur peut aussi être le Client ID seul : on ne l'utilise pas comme
+ * jeton, on explique quoi faire (voir `resolveMapillaryToken`).
+ */
+function readMapillaryConfig() {
+  const fileConfig = {};
+  // La racine servie peut être le dossier parent (STATIC_ROOT=..) : on cherche
+  // aussi à côté du serveur, là où le README demande de déposer le fichier.
+  const candidates = [...new Set([path.join(ROOT, 'server.config.json'), path.join(__dirname, 'server.config.json')])];
+  const file = candidates.find((candidate) => fs.existsSync(candidate));
   try {
-    const file = path.join(ROOT, 'server.config.json');
-    if (fs.existsSync(file)) {
+    if (file) {
       const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
-      if (typeof parsed.mapillaryToken === 'string' && parsed.mapillaryToken.trim()) {
-        return parsed.mapillaryToken.trim();
-      }
+      Object.assign(fileConfig, {
+        token: typeof parsed.mapillaryToken === 'string' ? parsed.mapillaryToken : '',
+        clientId: typeof parsed.mapillaryClientId === 'string' ? parsed.mapillaryClientId : '',
+        clientSecret: typeof parsed.mapillaryClientSecret === 'string' ? parsed.mapillaryClientSecret : '',
+      });
     }
   } catch (error) {
     console.warn('[serveur] server.config.json illisible :', error.message);
   }
-  return '';
+
+  const env = {
+    token: process.env.MAPILLARY_TOKEN || '',
+    clientId: process.env.MAPILLARY_CLIENT_ID || '',
+    clientSecret: process.env.MAPILLARY_CLIENT_SECRET || '',
+  };
+
+  // Un jeton explicite (variable d'environnement ou fichier) prime sur tout :
+  // on ne mélange jamais un jeton avec un identifiant resté dans l'autre source.
+  const token = env.token || fileConfig.token || '';
+  if (token) {
+    return { token, clientId: '', clientSecret: '', source: env.token ? 'environnement' : 'server.config.json' };
+  }
+
+  const clientId = env.clientId || fileConfig.clientId || '';
+  const clientSecret = env.clientSecret || fileConfig.clientSecret || '';
+  return {
+    token: '',
+    clientId,
+    clientSecret,
+    source: env.clientId || env.clientSecret ? 'environnement' : 'server.config.json',
+  };
+}
+
+/** (Re)résout le jeton : état, forme et message explicatif. */
+function reloadMapillary() {
+  MAPILLARY = resolveMapillaryToken(readMapillaryConfig());
+  TOKEN = MAPILLARY.token;
+  return MAPILLARY;
 }
 
 /**
@@ -92,8 +140,10 @@ function readGoogleKey() {
   return '';
 }
 
-let TOKEN = readToken();
+let MAPILLARY = resolveMapillaryToken({});
+let TOKEN = '';
 let GOOGLE_KEY = readGoogleKey();
+reloadMapillary();
 
 /* ------------------------------------------------------------------ */
 /* 2. Utilitaires HTTP                                                 */
@@ -156,12 +206,10 @@ function proxyRateLimited() {
 
 async function handleMapillary(request, response, url) {
   if (url.pathname === '/api/mapillary/status') {
+    // Le jeton lui-même n'est jamais renvoyé : seulement l'état et la consigne.
     return sendJson(response, 200, {
-      configured: Boolean(TOKEN),
-      mode: TOKEN ? 'proxy' : 'none',
-      message: TOKEN
-        ? 'Jeton Mapillary chargé côté serveur. Il n\'est jamais transmis au navigateur.'
-        : 'Aucun jeton Mapillary. Renseignez MAPILLARY_TOKEN ou server.config.json, puis relancez le serveur.',
+      ...mapillaryStatusPayload(MAPILLARY),
+      dashboardUrl: MAPILLARY_DASHBOARD_URL,
     });
   }
 
@@ -172,8 +220,10 @@ async function handleMapillary(request, response, url) {
   if (!TOKEN) {
     return sendJson(response, 501, {
       configured: false,
-      error: 'Jeton Mapillary absent',
-      message: 'Créez server.config.json avec { "mapillaryToken": "MLY|…" } puis relancez node server.js. Les photos Panoramax fonctionnent sans jeton.',
+      state: MAPILLARY.state,
+      error: MAPILLARY.state === 'missing' ? 'Jeton Mapillary absent' : 'Configuration Mapillary incomplète',
+      message: MAPILLARY.message,
+      dashboardUrl: MAPILLARY_DASHBOARD_URL,
     });
   }
 
@@ -189,7 +239,6 @@ async function handleMapillary(request, response, url) {
   }
 
   const upstream = new URL(`${MAPILLARY_GRAPH}/images`);
-  upstream.searchParams.set('access_token', TOKEN);
   upstream.searchParams.set('fields', 'id,thumb_1024_url,thumb_2048_url,captured_at,compass_angle,is_pano,geometry');
   upstream.searchParams.set('bbox', bbox);
   upstream.searchParams.set('limit', String(limit));
@@ -197,7 +246,11 @@ async function handleMapillary(request, response, url) {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 15000);
-    const upstreamResponse = await fetch(upstream, { signal: controller.signal, headers: { Accept: 'application/json' } });
+    // En-tête OAuth : le jeton ne traîne ni dans l'URL ni dans les journaux.
+    const upstreamResponse = await fetch(upstream, {
+      signal: controller.signal,
+      headers: { Accept: 'application/json', Authorization: `OAuth ${TOKEN}` },
+    });
     clearTimeout(timer);
     const text = await upstreamResponse.text();
 
@@ -212,7 +265,8 @@ async function handleMapillary(request, response, url) {
       return sendJson(response, upstreamResponse.status === 401 || upstreamResponse.status === 403 ? 401 : 502, {
         error: 'Mapillary a refusé la requête',
         status: upstreamResponse.status,
-        message: detail || 'Vérifiez la validité du jeton client Mapillary.',
+        message: detail || 'Mapillary a refusé le jeton. Vérifiez qu’il s’agit bien du « Client Token » (MLY|…), '
+          + 'et non du Client ID, sur mapillary.com/dashboard/developers.',
       });
     }
 
@@ -462,6 +516,7 @@ const server = http.createServer(async (request, response) => {
       app: 'Company Locator France',
       version: '1.0.0',
       mapillaryConfigured: Boolean(TOKEN),
+      mapillaryState: MAPILLARY.state,
       googleStreetViewConfigured: Boolean(GOOGLE_KEY),
       node: process.version,
     });
@@ -480,9 +535,12 @@ const server = http.createServer(async (request, response) => {
   }
 
   if (url.pathname === '/api/reload-token') {
-    TOKEN = readToken();
+    reloadMapillary();
     GOOGLE_KEY = readGoogleKey();
-    return sendJson(response, 200, { configured: Boolean(TOKEN), googleStreetViewConfigured: Boolean(GOOGLE_KEY) });
+    return sendJson(response, 200, {
+      ...mapillaryStatusPayload(MAPILLARY),
+      googleStreetViewConfigured: Boolean(GOOGLE_KEY),
+    });
   }
 
   return serveStatic(request, response, url);
@@ -524,7 +582,9 @@ let activePort = PORT;
 server.on('listening', () => {
   const url = `http://localhost:${activePort}/`;
   const appUrl = `${url}${OPEN_PATH}`;
-  const tokenState = TOKEN ? 'chargé (proxy actif)' : 'absent (Panoramax reste disponible sans jeton)';
+  const tokenState = MAPILLARY.configured
+    ? `chargé (proxy actif, ${MAPILLARY.shape === 'composed' ? 'Client ID + Secret' : 'Client Token'})`
+    : `${MAPILLARY.state === 'incomplete' ? 'incomplet' : (MAPILLARY.state === 'invalid' ? 'invalide' : 'absent')} (Panoramax reste disponible sans jeton)`;
   console.log('');
   console.log('  Company Locator France — serveur local');
   console.log('  --------------------------------------');
@@ -536,6 +596,7 @@ server.on('listening', () => {
   }
   console.log(`  Santé       : ${url}api/health`);
   console.log(`  Jeton Mapillary : ${tokenState}`);
+  if (!MAPILLARY.configured) console.log(`  → ${MAPILLARY.message}`);
   console.log('  Arrêt : Ctrl + C');
   console.log('');
   if (OPEN_BROWSER) openBrowser(appUrl);
@@ -558,6 +619,65 @@ server.on('error', (error) => {
   console.error('[serveur] Erreur :', error.message);
   process.exit(1);
 });
+
+/* ------------------------------------------------------------------ */
+/* 7. Vérification réelle du jeton (node server.js --check-mapillary)  */
+/*                                                                     */
+/* Un jeton mal copié ne se voit qu'au premier appel : cette option    */
+/* interroge Mapillary une fois et donne un verdict sans ambiguïté.    */
+/* ------------------------------------------------------------------ */
+
+async function checkMapillary() {
+  const line = (text) => console.log(`  ${text}`);
+  console.log('');
+  console.log('  Vérification du jeton Mapillary');
+  console.log('  -------------------------------');
+  line(`État    : ${MAPILLARY.state}`);
+  line(`Source  : ${MAPILLARY.source}`);
+  line(MAPILLARY.message);
+  if (!MAPILLARY.configured) {
+    line(`Tableau de bord : ${MAPILLARY_DASHBOARD_URL}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  const upstream = new URL(`${MAPILLARY_GRAPH}/images`);
+  upstream.searchParams.set('fields', 'id,captured_at');
+  upstream.searchParams.set('limit', '1');
+  upstream.searchParams.set('bbox', '2.28,48.83,2.32,48.86'); // centre de Paris
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
+    const response = await fetch(upstream, {
+      headers: { Accept: 'application/json', Authorization: `OAuth ${TOKEN}` },
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    const text = await response.text();
+    if (response.ok) {
+      let count = 0;
+      try { count = (JSON.parse(text).data || []).length; } catch { /* réponse inattendue */ }
+      line(`✔ Jeton accepté par Mapillary (HTTP ${response.status}) — ${count} image(s) sur le secteur de test.`);
+      return;
+    }
+    let detail = '';
+    try { detail = JSON.parse(text)?.error?.message || ''; } catch { /* réponse non JSON */ }
+    line(`✘ Mapillary a refusé le jeton (HTTP ${response.status})${detail ? ` : ${detail}` : ''}`);
+    line('Copiez le « Client Token » (MLY|…) sur ' + MAPILLARY_DASHBOARD_URL);
+    process.exitCode = 1;
+  } catch (error) {
+    line(error.name === 'AbortError'
+      ? '✘ Aucune réponse de Mapillary en 15 secondes.'
+      : `✘ Impossible de joindre Mapillary : ${error.message}`);
+    line('Vérifiez que ce réseau autorise graph.mapillary.com.');
+    process.exitCode = 1;
+  }
+}
+
+if (process.argv.includes('--check-mapillary')) {
+  await checkMapillary();
+  process.exit(process.exitCode || 0);
+}
 
 server.listen(PORT, HOST);
 

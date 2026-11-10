@@ -1367,7 +1367,14 @@ export function renderSettings(container, { settings: current, info, mapillaryAc
     icon(mode === 'none' ? 'info' : 'alert'),
     el('span', { text: `Mode actuel : ${mode === 'proxy' ? 'proxy local sécurisé' : (mode === 'direct' ? 'jeton client exposé' : 'non configuré')}. ${mapillaryAccess?.detail || ''}` }),
   ]));
-  mapillary.append(el('p', { class: 'muted-xs', text: 'Pour activer Mapillary sans exposer de secret : créez server.config.json à la racine du dossier avec { "mapillaryToken": "MLY|…" }, puis lancez node server.js. Le jeton reste côté serveur. Jeton gratuit sur mapillary.com/dashboard/developers.' }));
+  mapillary.append(el('p', {
+    class: 'muted-xs',
+    text: 'Pour activer Mapillary sans exposer de secret : créez server.config.json dans le dossier de l’application, '
+      + 'puis lancez node server.js. Deux formes acceptées — « mapillaryToken » : "MLY|<client_id>|<client_secret>" '
+      + '(le « Client Token » complet), ou « mapillaryClientId » + « mapillaryClientSecret » : le serveur compose le jeton '
+      + 'lui-même. Un Client ID seul ne suffit pas : l’API répondrait 401. Contrôle : node server.js --check-mapillary. '
+      + 'Jeton gratuit sur mapillary.com/dashboard/developers.',
+  }));
   mapillary.append(el('p', { class: 'muted-xs', style: 'margin-top:8px' }, [
     'Sans jeton, ', el('strong', { text: 'Panoramax' }), ' fournit déjà des photographies de rue libres (IGN et OpenStreetMap France), sans inscription.',
   ]));

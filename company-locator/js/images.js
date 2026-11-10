@@ -16,6 +16,7 @@
  */
 
 import config from './config.js';
+import { mapillaryTokenShape } from './mapillary-config.js';
 import {
   AppError, ERR, RateLimiter, TtlCache, fetchJson, haversineM, bboxAround,
   safeUrl, truncate, formatDateFr,
@@ -132,13 +133,15 @@ const mCache = new TtlCache({ store: cacheStore, prefix: 'cache:mly:', ttlMs: MC
 
 let accessMode = null; // 'proxy' | 'direct' | 'none'
 let accessDetail = '';
+/** État détaillé renvoyé par le serveur : 'ready' | 'missing' | 'incomplete' | 'invalid'. */
+let accessState = '';
 
 /**
  * Détermine comment Mapillary peut être interrogé, sans jamais exposer de
  * secret : on teste d'abord le proxy local, puis un jeton client explicite.
  */
 export async function detectMapillaryAccess({ force = false } = {}) {
-  if (accessMode && !force) return { mode: accessMode, detail: accessDetail };
+  if (accessMode && !force) return { mode: accessMode, detail: accessDetail, state: accessState };
 
   if (!MCFG.enabled) {
     accessMode = 'none';
@@ -159,23 +162,37 @@ export async function detectMapillaryAccess({ force = false } = {}) {
       const body = await response.json();
       if (body?.configured) {
         accessMode = 'proxy';
-        accessDetail = 'Jeton chargé côté serveur (proxy local) : aucun secret dans le navigateur.';
-        return { mode: accessMode, detail: accessDetail };
+        accessState = body.state || 'ready';
+        accessDetail = body.message || 'Jeton chargé côté serveur (proxy local) : aucun secret dans le navigateur.';
+        return { mode: accessMode, detail: accessDetail, state: accessState };
       }
-      accessDetail = 'Proxy local détecté mais aucun jeton configuré (server.config.json ou MAPILLARY_TOKEN).';
+      // Le serveur explique précisément ce qui manque (jeton absent, Client ID
+      // sans secret, forme inattendue) : on relaie sa consigne telle quelle.
+      accessState = body?.state || '';
+      accessDetail = body?.message
+        || 'Proxy local détecté mais aucun jeton configuré (server.config.json ou MAPILLARY_TOKEN).';
     }
   } catch { /* pas de proxy : serveur statique simple */ }
 
   if (MCFG.clientToken && MCFG.clientToken.trim()) {
-    accessMode = 'direct';
-    accessDetail = 'Jeton client utilisé directement depuis le navigateur : visible publiquement, à réserver à un usage local.';
-    return { mode: accessMode, detail: accessDetail };
+    const shape = mapillaryTokenShape(MCFG.clientToken);
+    if (shape === 'client-token') {
+      accessMode = 'direct';
+      accessState = 'ready';
+      accessDetail = 'Jeton client utilisé directement depuis le navigateur : visible publiquement, à réserver à un usage local.';
+      return { mode: accessMode, detail: accessDetail, state: accessState };
+    }
+    // Un Client ID (nombre) n'est pas un jeton : on le dit au lieu d'échouer en 401.
+    accessState = 'invalid';
+    accessDetail = `config.local.js → api.mapillary.clientToken ne contient pas un jeton Mapillary `
+      + `(forme ${shape === 'client-id' ? 'Client ID' : 'inattendue'}) : il doit commencer par MLY|. `
+      + 'Utilisez de préférence server.config.json pour garder le secret côté serveur.';
   }
 
   accessMode = 'none';
   accessDetail = accessDetail
     || 'Aucun jeton Mapillary. Les photos de rue Panoramax restent disponibles sans jeton.';
-  return { mode: accessMode, detail: accessDetail };
+  return { mode: accessMode, detail: accessDetail, state: accessState };
 }
 
 function normalizeMapillaryItem(item, origin) {
