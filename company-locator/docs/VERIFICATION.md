@@ -33,8 +33,8 @@ Ce document distingue honnêtement **ce qui a été exécuté et vérifié** de 
 ### 1.1 bis Serveur local et jeton Mapillary — `npm run test:server`
 
 ```
-# tests 5
-# pass  5
+# tests 7
+# pass  7
 # fail  0
 ```
 
@@ -51,6 +51,14 @@ réelles) dans quatre configurations de jeton, puis vérifie :
 4. **Jeton mal formé** (`MLY|pas-complet`) → état `invalid` et message explicite.
 5. **`node server.js --check-mapillary`** → verdict en ligne de commande, **code de sortie
    1** sans jeton utilisable, secret jamais imprimé.
+6. **Configuration par fichier** (`CLF_CONFIG_FILE`) : un `server.config.json` réduit au
+   Client ID donne `incomplete` ; avec le Client Secret en plus, `ready` — secret absent
+   de la réponse.
+7. **Priorité des sources** : un jeton explicite (variable d'environnement) est évalué
+   seul, il n'est jamais « réparé » par un Client ID resté dans le fichier.
+
+> Les tests pointent `CLF_CONFIG_FILE` vers un fichier temporaire : ils ne dépendent
+> jamais du `server.config.json` de la machine (qui contient le vrai jeton).
 
 > Aucune requête ne part réellement vers Mapillary dans ces tests : seuls les cas
 > `ready` vérifient l'état local. Le verdict « ✔ Jeton accepté » de `--check-mapillary`
@@ -266,7 +274,7 @@ node server.js
 | Domaine | Statut |
 |---|---|
 | Logique métier (recherche, normalisation, GPS, exports, stockage, images, contacts, jeton Mapillary) | ✅ **149 tests unitaires exécutés et verts** |
-| Serveur local et configuration du jeton Mapillary | ✅ **5 tests d'intégration exécutés et verts** (processus réel, HTTP réel) |
+| Serveur local et configuration du jeton Mapillary | ✅ **7 tests d'intégration exécutés et verts** (processus réel, HTTP réel) |
 | Cascade CSS et éléments masqués | ✅ **17 vérifications exécutées et vertes** (test par mutation validé) |
 | Garde de démarrage (`file://`, chien de garde) | ✅ **14 vérifications exécutées et vertes** |
 | Interface et parcours complet | ✅ **59 vérifications DOM exécutées et vertes**, 0 erreur JS |

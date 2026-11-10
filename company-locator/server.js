@@ -19,6 +19,8 @@
  *               permet au formulaire d'assurance d'intégrer le localisateur
  *               en iframe tout en gardant le relais d'API local :
  *               http://localhost:8080/assurance-tns-pro-v2-adw/
+ * Config :      server.config.json (racine servie ou dossier du serveur),
+ *               ou CLF_CONFIG_FILE=<chemin> pour imposer un autre emplacement.
  * Jeton :       variable d'environnement MAPILLARY_TOKEN
  *               ou fichier server.config.json { "mapillaryToken": "MLY|…" }
  *               (le Client ID + Client Secret du tableau de bord suffisent :
@@ -75,7 +77,14 @@ function readMapillaryConfig() {
   const fileConfig = {};
   // La racine servie peut être le dossier parent (STATIC_ROOT=..) : on cherche
   // aussi à côté du serveur, là où le README demande de déposer le fichier.
-  const candidates = [...new Set([path.join(ROOT, 'server.config.json'), path.join(__dirname, 'server.config.json')])];
+  // CLF_CONFIG_FILE force un emplacement précis (déploiement, tests) : dans ce
+  // cas le fichier est le seul pris en compte, même s'il n'existe pas.
+  const override = typeof process.env.CLF_CONFIG_FILE === 'string' && process.env.CLF_CONFIG_FILE.trim()
+    ? path.resolve(process.env.CLF_CONFIG_FILE.trim())
+    : '';
+  const candidates = override
+    ? [override]
+    : [...new Set([path.join(ROOT, 'server.config.json'), path.join(__dirname, 'server.config.json')])];
   const file = candidates.find((candidate) => fs.existsSync(candidate));
   try {
     if (file) {
