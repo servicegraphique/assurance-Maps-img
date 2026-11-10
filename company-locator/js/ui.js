@@ -1372,7 +1372,9 @@ export function renderSettings(container, { settings: current, info, mapillaryAc
     text: 'Pour activer Mapillary sans exposer de secret : créez server.config.json dans le dossier de l’application, '
       + 'puis lancez node server.js. Deux formes acceptées — « mapillaryToken » : "MLY|<client_id>|<client_secret>" '
       + '(le « Client Token » complet), ou « mapillaryClientId » + « mapillaryClientSecret » : le serveur compose le jeton '
-      + 'lui-même. Un Client ID seul ne suffit pas : l’API répondrait 401. Contrôle : node server.js --check-mapillary. '
+      + 'lui-même. Un Client ID seul ne suffit pas : l’API répondrait 401. '
+      + 'Créer le fichier en une commande : node server.js --set-mapillary-token "MLY|…" ; '
+      + 'contrôle : node server.js --check-mapillary. '
       + 'Jeton gratuit sur mapillary.com/dashboard/developers.',
   }));
   mapillary.append(el('p', { class: 'muted-xs', style: 'margin-top:8px' }, [

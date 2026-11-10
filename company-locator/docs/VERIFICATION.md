@@ -33,8 +33,8 @@ Ce document distingue honnêtement **ce qui a été exécuté et vérifié** de 
 ### 1.1 bis Serveur local et jeton Mapillary — `npm run test:server`
 
 ```
-# tests 7
-# pass  7
+# tests 10
+# pass  10
 # fail  0
 ```
 
@@ -56,6 +56,14 @@ réelles) dans quatre configurations de jeton, puis vérifie :
    de la réponse.
 7. **Priorité des sources** : un jeton explicite (variable d'environnement) est évalué
    seul, il n'est jamais « réparé » par un Client ID resté dans le fichier.
+8. **Fichier absent** : `--check-mapillary` affiche le **chemin attendu** (« Fichier :
+   introuvable ») et la commande pour le créer, au lieu d'un simple « missing ».
+9. **`--set-mapillary-token`** : enregistre le jeton validé (fichier en mode **600**),
+   **préserve les autres clés**, ne l'imprime jamais, et le serveur le relit aussitôt
+   (`État : ready`).
+10. **Jeton refusé** : un Client ID passé à `--set-mapillary-token` sort en **code 1**
+    avec l'explication, et **aucun fichier n'est créé** ; appel sans valeur → message
+    d'usage.
 
 > Les tests pointent `CLF_CONFIG_FILE` vers un fichier temporaire : ils ne dépendent
 > jamais du `server.config.json` de la machine (qui contient le vrai jeton).
@@ -153,7 +161,8 @@ Exécutées contre `node server.js` en fonctionnement :
 | `GET /api/mapillary/images` avec un Client ID seul | **HTTP 501** « Configuration Mapillary incomplète », aucune requête vers Mapillary |
 | `GET /api/mapillary/status` avec Client ID + Secret | `configured:true`, `state:"ready"`, `tokenLength>0`, **ni l'ID ni le secret dans la réponse** |
 | `GET /api/health` | expose `mapillaryConfigured` **et** `mapillaryState` (`ready`/`incomplete`/`invalid`/`missing`) |
-| `node server.js --check-mapillary` sans jeton utilisable | verdict lisible, **code de sortie 1**, secret jamais imprimé |
+| `node server.js --check-mapillary` sans jeton utilisable | verdict lisible, **code de sortie 1**, secret jamais imprimé ; le **chemin du fichier** est indiqué (`Fichier : …` / `introuvable`) |
+| `node server.js --set-mapillary-token "MLY|…"` | jeton validé puis écrit dans `server.config.json` en **mode 600**, autres clés préservées, jeton jamais imprimé |
 | `GET /api/mapillary/images` sans jeton | HTTP 501 explicite, **aucun appel anonyme** |
 | Chargement d'un jeton via `server.config.json` + `/api/reload-token` | `configured:true`, **jeton absent de toutes les réponses** |
 | `GET /server.config.json` | **HTTP 403** — le secret n'est jamais téléchargeable |
@@ -274,7 +283,7 @@ node server.js
 | Domaine | Statut |
 |---|---|
 | Logique métier (recherche, normalisation, GPS, exports, stockage, images, contacts, jeton Mapillary) | ✅ **149 tests unitaires exécutés et verts** |
-| Serveur local et configuration du jeton Mapillary | ✅ **7 tests d'intégration exécutés et verts** (processus réel, HTTP réel) |
+| Serveur local et configuration du jeton Mapillary | ✅ **10 tests d'intégration exécutés et verts** (processus réel, HTTP réel) |
 | Cascade CSS et éléments masqués | ✅ **17 vérifications exécutées et vertes** (test par mutation validé) |
 | Garde de démarrage (`file://`, chien de garde) | ✅ **14 vérifications exécutées et vertes** |
 | Interface et parcours complet | ✅ **59 vérifications DOM exécutées et vertes**, 0 erreur JS |

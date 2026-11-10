@@ -217,8 +217,15 @@ Si vous souhaitez aussi les photos Mapillary :
 1. Créez un compte gratuit et une application sur <https://www.mapillary.com/dashboard/developers>.
 2. Dans le tableau de bord, cliquez sur **« View »** de votre application et copiez le
    **Client Token** : il ressemble à `MLY|28966464223012415|1a2b3c…` (trois segments).
-3. Copiez `server.config.example.json` vers **`server.config.json`** et remplissez **l'une**
-   des deux formes :
+3. Une seule commande suffit — elle valide le jeton **avant** de l'écrire, ne l'affiche jamais
+   et préserve les autres clés du fichier (clé Google, commentaires) :
+
+   ```bash
+   node server.js --set-mapillary-token "MLY|28966464223012415|1a2b3c…"   # Windows / macOS / Linux
+   ```
+
+   Ou, à la main, en copiant `server.config.example.json` vers **`server.config.json`**,
+   avec **l'une** des deux formes :
 
    ```json
    { "mapillaryToken": "MLY|28966464223012415|1a2b3c…" }
@@ -255,6 +262,7 @@ le serveur ajoute l'en-tête `Authorization: OAuth <jeton>`. `server.config.json
 | `État : invalid` | valeur tronquée (copie partielle) | recopiez le Client Token en entier : `MLY|id|secret` |
 | `--check-mapillary` → `HTTP 401` | jeton révoqué ou Client ID utilisé comme jeton | régénérez le token sur le tableau de bord |
 | `✘ Impossible de joindre Mapillary` | réseau sortant bloqué | autorisez `graph.mapillary.com` |
+| `État : missing` + `Fichier : introuvable` | `server.config.json` absent (normal après un clone : il n'est jamais versionné) | `node server.js --set-mapillary-token "MLY|…"`, ou copier `server.config.example.json` |
 | `configured: false` dans `/api/mapillary/status` | fichier absent ou mal placé | `server.config.json` dans `company-locator/` (aussi lu dans la racine servie) |
 
 Le fichier est cherché dans la racine servie **et** dans le dossier de l'application.

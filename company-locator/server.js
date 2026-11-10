@@ -25,7 +25,9 @@
  *               ou fichier server.config.json { "mapillaryToken": "MLY|…" }
  *               (le Client ID + Client Secret du tableau de bord suffisent :
  *               le jeton « MLY|<id>|<secret> » est composé automatiquement)
- * Option :      --check-mapillary  vérifie le jeton auprès de Mapillary et sort.
+ * Options :     --check-mapillary  vérifie le jeton auprès de Mapillary et sort ;
+ *               --set-mapillary-token "MLY|…"  enregistre le jeton dans
+ *               server.config.json (fichier local, mode 600) et sort.
  *
  * Aucune base de données, aucun compte, aucun service payant.
  */
@@ -84,8 +86,8 @@ function readMapillaryConfig() {
     : '';
   const candidates = override
     ? [override]
-    : [...new Set([path.join(ROOT, 'server.config.json'), path.join(__dirname, 'server.config.json')])];
-  const file = candidates.find((candidate) => fs.existsSync(candidate));
+    : [...new Set([path.join(__dirname, 'server.config.json'), path.join(ROOT, 'server.config.json')])];
+  const file = candidates.find((candidate) => fs.existsSync(candidate)) || '';
   try {
     if (file) {
       const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -108,8 +110,11 @@ function readMapillaryConfig() {
   // Un jeton explicite (variable d'environnement ou fichier) prime sur tout :
   // on ne mélange jamais un jeton avec un identifiant resté dans l'autre source.
   const token = env.token || fileConfig.token || '';
+  const where = { file, fileExists: Boolean(file), expected: candidates[0], searched: candidates };
   if (token) {
-    return { token, clientId: '', clientSecret: '', source: env.token ? 'environnement' : 'server.config.json' };
+    return {
+      token, clientId: '', clientSecret: '', source: env.token ? 'environnement' : 'server.config.json', ...where,
+    };
   }
 
   const clientId = env.clientId || fileConfig.clientId || '';
@@ -119,12 +124,23 @@ function readMapillaryConfig() {
     clientId,
     clientSecret,
     source: env.clientId || env.clientSecret ? 'environnement' : 'server.config.json',
+    ...where,
   };
 }
 
 /** (Re)résout le jeton : état, forme et message explicatif. */
 function reloadMapillary() {
-  MAPILLARY = resolveMapillaryToken(readMapillaryConfig());
+  const config = readMapillaryConfig();
+  MAPILLARY = resolveMapillaryToken(config);
+  // Diagnostic local (jamais exposé par HTTP) : où le fichier était attendu.
+  MAPILLARY.configFile = config.file;
+  MAPILLARY.configExpected = config.expected;
+  MAPILLARY.configSearched = config.searched;
+  if (MAPILLARY.state === 'missing' && !config.fileExists) {
+    MAPILLARY.message = 'Aucun fichier de configuration trouvé : créez « server.config.json » à côté de '
+      + 'server.js (modèle : server.config.example.json), ou lancez la commande « node server.js '
+      + '--set-mapillary-token \"MLY|…\" ». Les photos Panoramax restent disponibles sans jeton.';
+  }
   TOKEN = MAPILLARY.token;
   return MAPILLARY;
 }
@@ -643,6 +659,12 @@ async function checkMapillary() {
   console.log('  -------------------------------');
   line(`État    : ${MAPILLARY.state}`);
   line(`Source  : ${MAPILLARY.source}`);
+  line(MAPILLARY.configFile
+    ? `Fichier : ${MAPILLARY.configFile}`
+    : `Fichier : introuvable — attendu à ${MAPILLARY.configExpected}`);
+  if (MAPILLARY.state === 'missing') {
+    line('Créer   : node server.js --set-mapillary-token "MLY|<client_id>|<client_secret>"');
+  }
   line(MAPILLARY.message);
   if (!MAPILLARY.configured) {
     line(`Tableau de bord : ${MAPILLARY_DASHBOARD_URL}`);
@@ -681,6 +703,68 @@ async function checkMapillary() {
     line('Vérifiez que ce réseau autorise graph.mapillary.com.');
     process.exitCode = 1;
   }
+}
+
+/**
+ * Enregistre le jeton dans server.config.json (ou dans CLF_CONFIG_FILE).
+ * Le jeton est validé AVANT d'être écrit, n'est jamais imprimé, et les autres
+ * clés du fichier (clé Google, commentaires) sont conservées.
+ */
+function setMapillaryToken(rawToken) {
+  const line = (text) => console.log(`  ${text}`);
+  console.log('');
+  console.log('  Enregistrement du jeton Mapillary');
+  console.log('  ---------------------------------');
+
+  if (!rawToken) {
+    line('✘ Aucun jeton fourni.');
+    line('Usage : node server.js --set-mapillary-token "MLY|<client_id>|<client_secret>"');
+    process.exitCode = 1;
+    return;
+  }
+
+  const resolution = resolveMapillaryToken({ token: rawToken });
+  if (resolution.state !== 'ready') {
+    line(`✘ Jeton refusé (${resolution.state}) : ${resolution.message}`);
+    line(`Tableau de bord : ${MAPILLARY_DASHBOARD_URL}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  const configuredPath = String(process.env.CLF_CONFIG_FILE || '').trim();
+  const target = configuredPath
+    ? path.resolve(configuredPath)
+    : path.join(__dirname, 'server.config.json');
+
+  let payload = {};
+  try {
+    if (fs.existsSync(target)) payload = JSON.parse(fs.readFileSync(target, 'utf8')) || {};
+  } catch (error) {
+    line(`[serveur] ${path.basename(target)} illisible (${error.message}) : le fichier sera réécrit.`);
+    payload = {};
+  }
+
+  payload.mapillaryToken = resolution.token;
+  try {
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600 });
+    // `mode` ne s'applique qu'à la création : on resserre les droits d'un
+    // fichier préexistant (ignoré silencieusement sous Windows).
+    try { fs.chmodSync(target, 0o600); } catch { /* système sans permissions POSIX */ }
+  } catch (error) {
+    line(`✘ Écriture impossible dans ${target} : ${error.message}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  line(`✔ Jeton enregistré dans ${target} (${resolution.token.length} caractères, fichier non versionné).`);
+  line('Vérification : node server.js --check-mapillary');
+}
+
+const setTokenFlag = process.argv.indexOf('--set-mapillary-token');
+if (setTokenFlag > -1) {
+  setMapillaryToken(process.argv[setTokenFlag + 1]);
+  process.exit(process.exitCode || 0);
 }
 
 if (process.argv.includes('--check-mapillary')) {

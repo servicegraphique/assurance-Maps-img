@@ -18,7 +18,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -222,9 +222,10 @@ test('Jeton mal formé : état « invalid » et message explicite', async () => 
   }
 });
 
-test('--check-mapillary : verdict en ligne de commande, code de sortie 1 sans jeton utilisable', async () => {
-  const run = (env) => new Promise((resolve) => {
-    const child = spawn(process.execPath, ['server.js', '--check-mapillary'], {
+/** Lance une commande CLI du serveur et rend le code de sortie + la sortie. */
+function runCli(args, env = {}) {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, ['server.js', ...args], {
       cwd: ROOT,
       env: {
         ...process.env,
@@ -239,6 +240,10 @@ test('--check-mapillary : verdict en ligne de commande, code de sortie 1 sans je
     child.stderr.on('data', (chunk) => { output += chunk; });
     child.on('exit', (code) => resolve({ code, output }));
   });
+}
+
+test('--check-mapillary : verdict en ligne de commande, code de sortie 1 sans jeton utilisable', async () => {
+  const run = (env) => runCli(['--check-mapillary'], env);
 
   const withClientId = await run({ MAPILLARY_CLIENT_ID: CLIENT_ID });
   assert.equal(withClientId.code, 1);
@@ -252,4 +257,50 @@ test('--check-mapillary : verdict en ligne de commande, code de sortie 1 sans je
   assert.match(withSecret.output, /État {4}: ready/);
   assert.match(withSecret.output, /✔|✘/);
   assert.ok(!withSecret.output.includes(SECRET), 'le secret n’est jamais imprimé');
+});
+
+test('Fichier absent : --check-mapillary indique où le fichier est attendu', async () => {
+  const missing = path.join(TMP, 'vraiment-absent.json');
+  const { code, output } = await runCli(['--check-mapillary'], { CLF_CONFIG_FILE: missing });
+  assert.equal(code, 1);
+  assert.match(output, /État {4}: missing/);
+  assert.match(output, /Fichier : introuvable/);
+  assert.ok(output.includes(missing), 'le chemin attendu est affiché');
+  assert.match(output, /--set-mapillary-token/);
+});
+
+test('--set-mapillary-token : écrit le jeton (mode 600) et conserve les autres clés', async () => {
+  const file = path.join(TMP, 'ecrit.json');
+  writeFileSync(file, JSON.stringify({ _note: 'à conserver', googleMapsEmbedKey: 'AIza-test' }), 'utf8');
+
+  const { code, output } = await runCli(['--set-mapillary-token', TOKEN], { CLF_CONFIG_FILE: file });
+  assert.equal(code, 0, output);
+  assert.match(output, /✔ Jeton enregistré/);
+  assert.ok(!output.includes(SECRET), 'le jeton n’est jamais imprimé');
+
+  const written = JSON.parse(readFileSync(file, 'utf8'));
+  assert.equal(written.mapillaryToken, TOKEN);
+  assert.equal(written._note, 'à conserver', 'les clés existantes sont préservées');
+  assert.equal(written.googleMapsEmbedKey, 'AIza-test');
+  if (process.platform !== 'win32') {
+    assert.equal(statSync(file).mode & 0o777, 0o600, 'fichier lisible par le seul propriétaire');
+  }
+
+  // Relecture par le serveur : l'état passe à « ready » sans intervention.
+  const check = await runCli(['--check-mapillary'], { CLF_CONFIG_FILE: file });
+  assert.match(check.output, /État {4}: ready/);
+  assert.ok(check.output.includes(file), 'le fichier utilisé est affiché');
+});
+
+test('--set-mapillary-token : un jeton invalide est refusé et n’écrit rien', async () => {
+  const file = path.join(TMP, 'jamais-ecrit.json');
+  const { code, output } = await runCli(['--set-mapillary-token', CLIENT_ID], { CLF_CONFIG_FILE: file });
+  assert.equal(code, 1);
+  assert.match(output, /✘ Jeton refusé/);
+  assert.match(output, /Client ID/);
+  assert.equal(existsSync(file), false, 'aucun fichier créé');
+
+  const noArg = await runCli(['--set-mapillary-token'], { CLF_CONFIG_FILE: file });
+  assert.equal(noArg.code, 1);
+  assert.match(noArg.output, /Usage/);
 });
