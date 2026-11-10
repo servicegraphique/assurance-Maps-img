@@ -18,9 +18,25 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+/**
+ * Les tests ne doivent jamais dépendre du `server.config.json` de la machine
+ * (qui contient le vrai jeton) : `CLF_CONFIG_FILE` pointe vers un fichier
+ * temporaire, absent par défaut.
+ */
+const TMP = mkdtempSync(path.join(os.tmpdir(), 'clf-config-'));
+const NO_CONFIG = path.join(TMP, 'absent.json');
+
+const writeConfig = (name, content) => {
+  const file = path.join(TMP, name);
+  writeFileSync(file, JSON.stringify(content, null, 2), 'utf8');
+  return file;
+};
 const CLIENT_ID = '28966464223012415';
 const SECRET = 'abcdef0123456789abcdef0123456789';
 const TOKEN = `MLY|${CLIENT_ID}|${SECRET}`;
@@ -37,6 +53,7 @@ function startServer(env = {}, { port = nextPort++ } = {}) {
       MAPILLARY_TOKEN: '',
       MAPILLARY_CLIENT_ID: '',
       MAPILLARY_CLIENT_SECRET: '',
+      CLF_CONFIG_FILE: NO_CONFIG,
       ...env,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -154,6 +171,44 @@ test('Un Client Token complet est accepté tel quel', async () => {
   }
 });
 
+test('server.config.json : Client ID seul → incomplete, Client ID + Secret → ready', async () => {
+  const clientIdOnly = writeConfig('client-id.json', { mapillaryClientId: CLIENT_ID });
+  const first = startServer({ CLF_CONFIG_FILE: clientIdOnly });
+  try {
+    await first.ready;
+    const status = await getJson(first.port, '/api/mapillary/status');
+    assert.equal(status.body.state, 'incomplete');
+    assert.match(status.body.message, /Client ID/);
+  } finally {
+    await stop(first.child);
+  }
+
+  const full = writeConfig('full.json', { mapillaryClientId: CLIENT_ID, mapillaryClientSecret: SECRET });
+  const second = startServer({ CLF_CONFIG_FILE: full });
+  try {
+    await second.ready;
+    const status = await getJson(second.port, '/api/mapillary/status');
+    assert.equal(status.body.configured, true);
+    assert.equal(status.body.state, 'ready');
+    assert.ok(!JSON.stringify(status.body).includes(SECRET), 'secret absent de la réponse');
+  } finally {
+    await stop(second.child);
+  }
+});
+
+test('Le jeton explicite prime sur le fichier, sans jamais mélanger les sources', async () => {
+  const fileWithId = writeConfig('id-seul.json', { mapillaryClientId: CLIENT_ID });
+  const server = startServer({ CLF_CONFIG_FILE: fileWithId, MAPILLARY_TOKEN: 'MLY|pas-complet' });
+  try {
+    await server.ready;
+    const status = await getJson(server.port, '/api/mapillary/status');
+    // Le jeton (invalide) est évalué seul : le Client ID du fichier ne le « répare » pas.
+    assert.equal(status.body.state, 'invalid');
+  } finally {
+    await stop(server.child);
+  }
+});
+
 test('Jeton mal formé : état « invalid » et message explicite', async () => {
   const server = startServer({ MAPILLARY_TOKEN: 'MLY|pas-complet' });
   try {
@@ -172,7 +227,10 @@ test('--check-mapillary : verdict en ligne de commande, code de sortie 1 sans je
     const child = spawn(process.execPath, ['server.js', '--check-mapillary'], {
       cwd: ROOT,
       env: {
-        ...process.env, MAPILLARY_TOKEN: '', MAPILLARY_CLIENT_ID: '', MAPILLARY_CLIENT_SECRET: '', ...env,
+        ...process.env,
+        MAPILLARY_TOKEN: '', MAPILLARY_CLIENT_ID: '', MAPILLARY_CLIENT_SECRET: '',
+        CLF_CONFIG_FILE: NO_CONFIG,
+        ...env,
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     });

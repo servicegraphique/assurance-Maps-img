@@ -257,6 +257,13 @@ le serveur ajoute l'en-tête `Authorization: OAuth <jeton>`. `server.config.json
 | `✘ Impossible de joindre Mapillary` | réseau sortant bloqué | autorisez `graph.mapillary.com` |
 | `configured: false` dans `/api/mapillary/status` | fichier absent ou mal placé | `server.config.json` dans `company-locator/` (aussi lu dans la racine servie) |
 
+Le fichier est cherché dans la racine servie **et** dans le dossier de l'application.
+Pour imposer un autre emplacement (déploiement, script, test) :
+
+```bash
+CLF_CONFIG_FILE=/etc/company-locator/server.config.json node server.js
+```
+
 Variantes par variable d'environnement (prioritaires sur le fichier) :
 
 ```powershell
