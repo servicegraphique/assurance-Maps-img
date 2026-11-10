@@ -214,24 +214,58 @@ Si vous souhaitez aussi les photos Mapillary :
 
 ### Méthode recommandée — le jeton reste côté serveur
 
-1. Créez un compte gratuit et un *client token* sur <https://www.mapillary.com/dashboard/developers>.
-2. Copiez `server.config.example.json` vers **`server.config.json`** :
+1. Créez un compte gratuit et une application sur <https://www.mapillary.com/dashboard/developers>.
+2. Dans le tableau de bord, cliquez sur **« View »** de votre application et copiez le
+   **Client Token** : il ressemble à `MLY|28966464223012415|1a2b3c…` (trois segments).
+3. Copiez `server.config.example.json` vers **`server.config.json`** et remplissez **l'une**
+   des deux formes :
 
    ```json
-   { "mapillaryToken": "MLY|1234567890|abcdef1234567890" }
+   { "mapillaryToken": "MLY|28966464223012415|1a2b3c…" }
+   ```
+   ```json
+   { "mapillaryClientId": "28966464223012415", "mapillaryClientSecret": "1a2b3c…" }
    ```
 
-3. Relancez `node server.js` (ou appelez `http://localhost:8080/api/reload-token` pour recharger à chaud).
+   La seconde forme est la plus lisible : le serveur compose lui-même le
+   `MLY|<client_id>|<client_secret>` attendu par Mapillary.
+4. Vérifiez le jeton, puis démarrez :
 
-Le jeton n'est **jamais** envoyé au navigateur : le front interroge `/api/mapillary/images`, le serveur ajoute le jeton côté serveur. `server.config.json` est **ignoré par Git** et **refusé en téléchargement** par le serveur (HTTP 403).
+   ```bash
+   node server.js --check-mapillary   # « ✔ Jeton accepté par Mapillary »
+   node server.js
+   ```
 
-Variante par variable d'environnement :
+   Le statut est aussi consultable à chaud : `http://localhost:8080/api/mapillary/status`
+   (ou `/api/reload-token` après modification du fichier).
+
+Le jeton n'est **jamais** envoyé au navigateur : le front interroge `/api/mapillary/images`,
+le serveur ajoute l'en-tête `Authorization: OAuth <jeton>`. `server.config.json` est
+**ignoré par Git** (`.gitignore`) et **refusé en téléchargement** par le serveur (HTTP 403).
+
+> **Piège fréquent : Client ID ≠ jeton.** Le **Client ID** (un simple nombre, par exemple
+> `28966464223012415`) identifie l'application mais ne permet aucun appel : l'API répond
+> **401**. Seul le **Client Token** (`MLY|id|secret`) fonctionne. L'application détecte ce
+> cas, refuse de l'utiliser comme jeton et affiche la marche à suivre dans les paramètres,
+> dans le panneau d'état des services et sur la ligne de commande.
+
+| Symptôme | Cause | Solution |
+|---|---|---|
+| `État : incomplete` + « est le Client ID, pas un jeton » | seul le Client ID a été copié | ajoutez `mapillaryClientSecret`, ou collez le Client Token complet |
+| `État : invalid` | valeur tronquée (copie partielle) | recopiez le Client Token en entier : `MLY|id|secret` |
+| `--check-mapillary` → `HTTP 401` | jeton révoqué ou Client ID utilisé comme jeton | régénérez le token sur le tableau de bord |
+| `✘ Impossible de joindre Mapillary` | réseau sortant bloqué | autorisez `graph.mapillary.com` |
+| `configured: false` dans `/api/mapillary/status` | fichier absent ou mal placé | `server.config.json` dans `company-locator/` (aussi lu dans la racine servie) |
+
+Variantes par variable d'environnement (prioritaires sur le fichier) :
 
 ```powershell
-$env:MAPILLARY_TOKEN = "MLY|…"; node server.js     # PowerShell
+$env:MAPILLARY_TOKEN = "MLY|…"; node server.js           # PowerShell
+$env:MAPILLARY_CLIENT_ID = "28966464223012415"; $env:MAPILLARY_CLIENT_SECRET = "…"; node server.js
 ```
 ```bash
-MAPILLARY_TOKEN="MLY|…" node server.js             # bash
+MAPILLARY_TOKEN="MLY|…" node server.js                  # bash
+MAPILLARY_CLIENT_ID=28966464223012415 MAPILLARY_CLIENT_SECRET=… node server.js
 ```
 
 ### Méthode déconseillée — jeton client dans le navigateur
@@ -271,6 +305,7 @@ company-locator/
 ├── package.json                Scripts npm (démarrage, tests) — aucun runtime requis
 ├── config.local.js             Surcharges locales (livré vide, aucun secret)
 ├── server.config.example.json  Modèle de configuration du jeton Mapillary
+├── server.config.json          Votre jeton (créé localement, jamais versionné)
 ├── Lancer-Company-Locator.bat  Lanceur Windows double-clic
 ├── lancer.sh                   Lanceur macOS / Linux
 │
@@ -288,6 +323,7 @@ company-locator/
 │   ├── map.js                  Leaflet : fonds, marqueurs, popups, plein écran, vue aérienne
 │   ├── images.js               Photographies de rue (Panoramax, Mapillary) + photos sourcées
 │   ├── streetview.js           Vues immersives 360° : sources, URL, qualification
+│   ├── mapillary-config.js     Diagnostic du jeton Mapillary (Client ID vs Client Token)
 │   ├── storage.js              LocalStorage : paramètres, historique opt-in, favoris, contact, cache
 │   ├── contact.js              Coordonnées de contact : normalisation FR, validation, tel:/mailto:
 │   ├── export.js               CSV, GeoJSON, JSON, presse-papiers

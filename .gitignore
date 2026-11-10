@@ -1,0 +1,13 @@
+# Secrets locaux : jetons Mapillary / Google jamais versionnés
+server.config.json
+.env
+.env.local
+
+# Dépendances de développement (tests jsdom) et verrous générés
+node_modules/
+package-lock.json
+
+# Divers
+*.log
+.DS_Store
+Thumbs.db
