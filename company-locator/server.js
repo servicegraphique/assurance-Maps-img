@@ -65,6 +65,16 @@ const MAPILLARY_GRAPH = 'https://graph.mapillary.com';
 /* ------------------------------------------------------------------ */
 
 /**
+ * Lit un fichier JSON local en tolérant le BOM UTF-8 : le Bloc-notes et
+ * PowerShell 5.1 (`Set-Content -Encoding UTF8`) en ajoutent un, et
+ * `JSON.parse` le refuse (« Unexpected token »). Sans cela, un fichier
+ * parfaitement valide passerait pour illisible sous Windows.
+ */
+function readJsonFile(file) {
+  return JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
+}
+
+/**
  * Lit la configuration Mapillary, sans jamais la journaliser.
  *
  * Trois formes acceptées, dans cet ordre de priorité :
@@ -90,7 +100,7 @@ function readMapillaryConfig() {
   const file = candidates.find((candidate) => fs.existsSync(candidate)) || '';
   try {
     if (file) {
-      const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+      const parsed = readJsonFile(file);
       Object.assign(fileConfig, {
         token: typeof parsed.mapillaryToken === 'string' ? parsed.mapillaryToken : '',
         clientId: typeof parsed.mapillaryClientId === 'string' ? parsed.mapillaryClientId : '',
@@ -156,7 +166,7 @@ function readGoogleKey() {
   try {
     const file = path.join(ROOT, 'server.config.json');
     if (fs.existsSync(file)) {
-      const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+      const parsed = readJsonFile(file);
       if (typeof parsed.googleMapsEmbedKey === 'string' && parsed.googleMapsEmbedKey.trim()) {
         return parsed.googleMapsEmbedKey.trim();
       }
@@ -738,7 +748,7 @@ function setMapillaryToken(rawToken) {
 
   let payload = {};
   try {
-    if (fs.existsSync(target)) payload = JSON.parse(fs.readFileSync(target, 'utf8')) || {};
+    if (fs.existsSync(target)) payload = readJsonFile(target) || {};
   } catch (error) {
     line(`[serveur] ${path.basename(target)} illisible (${error.message}) : le fichier sera réécrit.`);
     payload = {};

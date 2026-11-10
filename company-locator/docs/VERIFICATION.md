@@ -33,8 +33,8 @@ Ce document distingue honnêtement **ce qui a été exécuté et vérifié** de 
 ### 1.1 bis Serveur local et jeton Mapillary — `npm run test:server`
 
 ```
-# tests 10
-# pass  10
+# tests 11
+# pass  11
 # fail  0
 ```
 
@@ -64,6 +64,9 @@ réelles) dans quatre configurations de jeton, puis vérifie :
 10. **Jeton refusé** : un Client ID passé à `--set-mapillary-token` sort en **code 1**
     avec l'explication, et **aucun fichier n'est créé** ; appel sans valeur → message
     d'usage.
+11. **Fichier avec BOM UTF-8** (Bloc-notes, `Set-Content -Encoding UTF8` sous
+    PowerShell 5.1) : le fichier reste lisible (`État : ready`) et la réécriture
+    supprime le BOM.
 
 > Les tests pointent `CLF_CONFIG_FILE` vers un fichier temporaire : ils ne dépendent
 > jamais du `server.config.json` de la machine (qui contient le vrai jeton).
@@ -283,7 +286,7 @@ node server.js
 | Domaine | Statut |
 |---|---|
 | Logique métier (recherche, normalisation, GPS, exports, stockage, images, contacts, jeton Mapillary) | ✅ **149 tests unitaires exécutés et verts** |
-| Serveur local et configuration du jeton Mapillary | ✅ **10 tests d'intégration exécutés et verts** (processus réel, HTTP réel) |
+| Serveur local et configuration du jeton Mapillary | ✅ **11 tests d'intégration exécutés et verts** (processus réel, HTTP réel) |
 | Cascade CSS et éléments masqués | ✅ **17 vérifications exécutées et vertes** (test par mutation validé) |
 | Garde de démarrage (`file://`, chien de garde) | ✅ **14 vérifications exécutées et vertes** |
 | Interface et parcours complet | ✅ **59 vérifications DOM exécutées et vertes**, 0 erreur JS |
