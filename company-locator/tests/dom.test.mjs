@@ -239,97 +239,36 @@ check('Le fond de carte n\'est pas présenté comme une photographie', () => {
 
 click($('#results-list .result-item'));
 await waitFor(() => !$('#detail-card').hidden && $('#titre-fiche'), 'ouverture de la fiche');
-await waitFor(() => $('#gps-section .gps-coords'), 'résolution des coordonnées GPS');
-await waitFor(() => /Île-de-France/.test($('#detail-card').textContent), 'chargement des référentiels INSEE');
+await waitFor(() => !$('#btn-copy-gps').disabled, 'résolution des coordonnées GPS');
 
-check('La fiche affiche le nom, le SIREN et le SIRET formatés', () => {
-  const text = $('#detail-card').textContent;
-  assert.match(text, /732 829 320/);
-  assert.match(text, /732 829 320 00017/);
-  assert.match(text, /SOCIETE DE TEST A/);
-});
-check('Les informations géographiques sont complètes', () => {
-  const text = $('#detail-card').textContent;
-  assert.match(text, /75015/);
-  assert.match(text, /Paris/);
-  assert.match(text, /Île-de-France/);
-  assert.match(text, /France/);
-});
-check('Le code NAF est traduit en activité lisible', () => {
-  const badge = $('#detail-card .badge-primary').textContent;
-  assert.match(badge, /47\.11D/, badge);
-  assert.match(badge, /Supermarchés/, badge);
-  assert.match($('#detail-card .info-grid').textContent, /SAS, société par actions simplifiée/);
-});
-/* --- Coordonnées de contact (saisie manuelle, stockage local) --- */
-
-check('L\'onglet Informations propose un bloc « Coordonnées de contact » explicite', () => {
-  const section = $('#contacts-section');
-  assert.ok(section, 'bloc présent dans le panneau Informations');
-  const text = section.textContent;
-  assert.match(text, /Coordonnées de contact/);
-  assert.match(text, /Non renseignées/);
-  assert.match(text, /ne publie pas les coordonnées de contact/);
-  assert.match(text, /seulement sur cet appareil|cet appareil/);
-  assert.ok(section.querySelector('.contact-empty'), 'état vide explicite');
-  assert.ok(section.querySelector('.contact-actions button'), 'action d\'ajout proposée');
-});
-
-click($('#contacts-section .contact-actions button'));
-await waitFor(() => $('#contact-telephone'), 'ouverture du formulaire de contact');
-$('#contact-telephone').value = '01 23 45 67 89';
-$('#contact-mobile').value = '+33 6 12 34 56 78';
-$('#contact-email').value = ' Contact@Exemple.FR ';
-$('#contact-contact').value = 'Marie Dupont — accueil';
-$('#contact-note').value = 'Standard 9h-17h';
-$('.contact-form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
-await waitFor(() => $('#contacts-section .contact-list'), 'enregistrement des coordonnées');
-
-check('Les coordonnées saisies sont normalisées, liées et marquées « Saisie manuelle »', () => {
-  const items = $$('#contacts-section .contact-list .contact-item');
-  assert.equal(items.length, 4, 'fixe, mobile, e-mail et contact');
-  const hrefs = $$('#contacts-section .contact-link').map((a) => a.getAttribute('href'));
-  assert.ok(hrefs.includes('tel:+33123456789'), hrefs.join(', '));
-  assert.ok(hrefs.includes('tel:+33612345678'), hrefs.join(', '));
-  assert.ok(hrefs.includes('mailto:contact@exemple.fr'), hrefs.join(', '));
-  const text = $('#contacts-section').textContent;
-  assert.match(text, /01 23 45 67 89/);
-  assert.match(text, /06 12 34 56 78/);
-  assert.match(text, /Marie Dupont — accueil/);
-  assert.match(text, /Saisie manuelle/);
-  assert.match(text, /Standard 9h-17h/);
-  assert.match(text, /stockée uniquement sur cet appareil/);
-  assert.ok(window.localStorage.getItem('clf:contacts').includes('73282932000017'), 'stocké par SIRET');
-});
-
-click($('#contacts-section .contact-actions button'));
-await waitFor(() => $('#contact-telephone'), 'réouverture du formulaire');
-$('#contact-telephone').value = '06 12 34 56 78'; // un mobile dans le champ « fixe »
-$('.contact-form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
-await waitFor(() => $('#contacts-section .field-error'), 'message de validation');
-
-check('Une incohérence fixe/mobile est bloquée avec un message clair', () => {
-  const error = $('#contacts-section .field-error').textContent;
-  assert.match(error, /mobile/i);
-  assert.ok($('#contacts-section .field.has-error'), 'champ signalé');
-  assert.equal($('#contact-telephone').getAttribute('aria-invalid'), 'true');
-  // La saisie erronée n'écrase pas les coordonnées déjà enregistrées.
-  assert.match(window.localStorage.getItem('clf:contacts'), /0123456789/);
-  click($('#contacts-section .contact-form-actions .btn-outline'));
-});
-
-check('Les coordonnées GPS réelles sont affichées avec leur précision', () => {
-  assert.match($('#gps-section .gps-coords').textContent, /^48\.841230, 2\.300120$/);
-  assert.match($('#gps-section').textContent, /Niveau adresse/);
-  assert.match($('#gps-section').textContent, /Base Adresse Nationale/);
-});
-check('Un lien OpenStreetMap est proposé', () => {
-  const link = [...$('#detail-card').querySelectorAll('a')].find((a) => a.href.includes('openstreetmap.org'));
-  assert.ok(link, 'lien OSM présent');
-  assert.ok(link.href.includes('mlat=48.84123'));
-});
-check('L\'URL porte le SIRET (lien profond partageable)', () => {
+check('La fiche présente les nouveaux onglets et aucune ancienne action', () => {
+  const tabs = $$('#detail-card .tab-btn');
+  assert.deepEqual(tabs.map((tab) => tab.textContent), [
+    'Voir toiture ou Parking', 'Images', 'Météo et Vue actuel du zone', 'Sources',
+  ]);
+  assert.equal(tabs[0].getAttribute('aria-selected'), 'true');
+  assert.match($('#detail-card [data-panel="toiture"]').textContent, /Fonctionnalité à venir/);
+  assert.equal($('#detail-card .detail-actions'), null);
+  assert.equal($('#contacts-section'), null);
+  assert.equal($('#gps-section'), null);
+  assert.equal($('#etab-host'), null);
+  assert.match($('#detail-card').textContent, /732 829 320/);
   assert.match(window.location.hash, /^#\/etablissement\/\d{14}$/);
+});
+
+const callsBeforeNewTabs = networkCalls.length;
+click($('#detail-card [data-tab="meteo"]'));
+check('Le nouvel onglet météo est sélectionnable sans charger de données', () => {
+  assert.equal($('#detail-card [data-tab="meteo"]').getAttribute('aria-selected'), 'true');
+  assert.equal($('#detail-card [data-panel="meteo"]').hidden, false);
+  assert.equal($('#detail-card [data-panel="toiture"]').hidden, true);
+  assert.match($('#detail-card [data-panel="meteo"]').textContent, /Fonctionnalité à venir/);
+  assert.equal(networkCalls.length, callsBeforeNewTabs);
+});
+click($('#detail-card [data-tab="sources"]'));
+check('Les sources restent accessibles', () => {
+  assert.equal($('#detail-card [data-panel="sources"]').hidden, false);
+  assert.match($('#detail-card [data-panel="sources"]').textContent, /Licence Ouverte/);
 });
 
 /* ----------------------------- Images ------------------------------ */
@@ -533,11 +472,7 @@ click($('#btn-export-geojson'));
 check('L\'export GeoJSON produit un fichier nommé', () => {
   assert.ok(downloads.some((name) => /\.geojson$/.test(name)));
 });
-click([...$('#detail-card').querySelectorAll('.tab-btn')].find((button) => button.dataset.tab === 'fiche'));
-click([...$('#detail-card').querySelectorAll('.detail-actions .btn')].find((button) => button.textContent.includes('Exporter la fiche')));
-check('L\'export CSV d\'une fiche produit un fichier nommé par SIRET', () => {
-  assert.ok(downloads.some((name) => /company-locator_fiche_\d{14}_.*\.csv$/.test(name)));
-});
+click($('#detail-card [data-tab="toiture"]'));
 
 /* ----------------------- Fiche enregistrée ------------------------- */
 
@@ -546,9 +481,9 @@ await waitFor(() => $('#detail-card .detail-head .icon-btn').classList.contains(
 check('La fiche peut être enregistrée localement', () => {
   assert.ok(window.localStorage.getItem('clf:favorites').includes('73282932000017'));
 });
-check('Les coordonnées de contact survivent au re-rendu de la fiche', () => {
-  assert.match($('#contacts-section').textContent, /Marie Dupont — accueil/);
-  assert.match($('#contacts-section').textContent, /01 23 45 67 89/);
+check('Le nouvel onglet reste actif après le réaffichage de la fiche', () => {
+  assert.equal($('#detail-card [data-tab="toiture"]').getAttribute('aria-selected'), 'true');
+  assert.match($('#detail-card [data-panel="toiture"]').textContent, /Fonctionnalité à venir/);
 });
 
 /* ---------------------------- Paramètres --------------------------- */

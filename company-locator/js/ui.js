@@ -12,12 +12,10 @@ import {
   el, icon, clear, escapeHtml, formatSiren, formatSiret, formatDateFr, formatDateTimeFr,
   formatCoords, formatNumberFr, safeUrl, truncate,
 } from './utils.js';
-import { nafLabel, nafWithLabel, departementLabel, regionLabel, natureJuridiqueLabel, effectifLabel } from './labels.js';
+import { nafLabel, nafWithLabel } from './labels.js';
 import { precisionLabel } from './geocoding.js';
-import { addressText } from './export.js';
-import { osmLink, ignTimeLink } from './map.js';
+import { ignTimeLink } from './map.js';
 import { frameAttributes, describeImmersion } from './streetview.js';
-import { CONTACT_FIELDS, CONTACT_LIMITS, contactChannels } from './contact.js';
 
 /* ==================================================================== */
 /* 1. Notifications                                                      */
@@ -46,28 +44,6 @@ export function statusBadge(etablissement) {
   return el('span', { class: 'badge badge-neutral', text: 'État inconnu' });
 }
 
-function copyButton(value, label, onCopy) {
-  return el('button', {
-    type: 'button',
-    class: 'copy-btn',
-    title: `Copier ${label}`,
-    'aria-label': `Copier ${label}`,
-    onclick: (event) => { event.stopPropagation(); onCopy?.(value, label); },
-  }, [icon('copy')]);
-}
-
-function infoItem(label, value, options = {}) {
-  const { source = '', copy = null, mono = false, wide = false, onCopy = null } = options;
-  const item = el('div', { class: `info-item${wide ? ' is-wide' : ''}` });
-  item.append(el('p', { class: 'info-label', text: label }));
-  const valueNode = el('p', { class: 'info-value' });
-  valueNode.append(el('span', { class: mono ? 'mono' : '', text: value || '—' }));
-  if (copy && value) valueNode.append(copyButton(copy, label, onCopy));
-  item.append(valueNode);
-  if (source) item.append(el('p', { class: 'info-source', text: `Source : ${source}` }));
-  return item;
-}
-
 /** État vide de la liste de résultats (élément de liste, pour rester valide). */
 export function emptyState({ title, message, iconName = 'info', action = null }) {
   return el('li', { class: 'empty-state' }, [
@@ -85,10 +61,6 @@ function mediaEmpty({ title, message, iconName = 'image', action = null }) {
     el('p', { text: message }),
     action,
   ]);
-}
-
-function sectionTitle(text, iconName) {
-  return el('h3', {}, [icon(iconName), text]);
 }
 
 function externalLink(href, label, iconName = 'external') {
@@ -224,9 +196,9 @@ export function renderPagination(container, { page, totalPages, onPage }) {
 export const detailRefs = {};
 
 const TABS = [
-  { key: 'fiche', label: 'Informations', icon: 'building' },
+  { key: 'toiture', label: 'Voir toiture ou Parking', icon: 'satellite' },
   { key: 'images', label: 'Images', icon: 'camera' },
-  { key: 'etablissements', label: 'Établissements', icon: 'list' },
+  { key: 'meteo', label: 'Météo et Vue actuel du zone', icon: 'map' },
   { key: 'sources', label: 'Sources', icon: 'link' },
 ];
 
@@ -264,14 +236,6 @@ export function renderDetail(container, fiche, handlers) {
   if (e.nonDiffusible) badges.append(el('span', { class: 'badge badge-warning', text: 'Non diffusible' }));
   head.append(badges);
 
-  const actions = el('div', { class: 'detail-actions' });
-  actions.append(el('button', { type: 'button', class: 'btn btn-sm btn-outline', onclick: () => handlers.onCopyAddress?.() }, [icon('copy'), 'Copier l\'adresse']));
-  actions.append(el('button', { type: 'button', class: 'btn btn-sm btn-outline', onclick: () => handlers.onCopySiret?.() }, [icon('copy'), 'Copier le SIRET']));
-  actions.append(el('button', { type: 'button', class: 'btn btn-sm btn-outline', onclick: () => handlers.onExportFiche?.() }, [icon('download'), 'Exporter la fiche']));
-  const osmSlot = el('span', { id: 'detail-osm-slot' });
-  actions.append(osmSlot);
-  actions.append(externalLink(e.sourceUrl, 'Fiche officielle', 'external'));
-  head.append(actions);
   container.append(head);
 
   /* --- Onglets ------------------------------------------------------- */
@@ -279,9 +243,9 @@ export function renderDetail(container, fiche, handlers) {
   TABS.forEach((tab) => {
     tabs.append(el('button', {
       type: 'button',
-      class: `tab-btn${tab.key === (fiche.activeTab || 'fiche') ? ' is-active' : ''}`,
+      class: `tab-btn${tab.key === (fiche.activeTab || 'toiture') ? ' is-active' : ''}`,
       role: 'tab',
-      'aria-selected': String(tab.key === (fiche.activeTab || 'fiche')),
+      'aria-selected': String(tab.key === (fiche.activeTab || 'toiture')),
       dataset: { tab: tab.key },
       onclick: () => handlers.onTabChange?.(tab.key),
     }, [icon(tab.icon), tab.label]));
@@ -292,57 +256,15 @@ export function renderDetail(container, fiche, handlers) {
   TABS.forEach((tab) => {
     const panel = el('div', {
       class: 'tab-panel', role: 'tabpanel', dataset: { panel: tab.key },
-      hidden: tab.key !== (fiche.activeTab || 'fiche'),
+      hidden: tab.key !== (fiche.activeTab || 'toiture'),
     });
     panels[tab.key] = panel;
     container.append(panel);
   });
 
-  /* --- Panneau 1 : informations -------------------------------------- */
-  const info = panels.fiche;
+  panels.toiture.append(mediaEmpty({ iconName: 'satellite', title: 'Voir toiture ou Parking', message: 'Fonctionnalité à venir.' }));
+  panels.meteo.append(mediaEmpty({ iconName: 'map', title: 'Météo et Vue actuel du zone', message: 'Fonctionnalité à venir.' }));
 
-  const admin = el('div', { class: 'info-section' }, [sectionTitle('Informations administratives', 'building')]);
-  const adminGrid = el('div', { class: 'info-grid' });
-  adminGrid.append(infoItem('Raison sociale', c.raisonSociale || c.nomComplet, { source: 'API Recherche d\'entreprises', wide: true }));
-  if (c.sigle) adminGrid.append(infoItem('Sigle', c.sigle, { source: 'API Recherche d\'entreprises' }));
-  adminGrid.append(infoItem('Nom commercial', e.nomCommercial || '—', { source: 'SIRENE' }));
-  adminGrid.append(infoItem('Enseignes', e.enseignes.join(' · ') || '—', { source: 'SIRENE' }));
-  adminGrid.append(infoItem('SIREN', formatSiren(c.siren), { source: 'INSEE / SIRENE', mono: true, copy: c.siren, onCopy: handlers.onCopyValue }));
-  adminGrid.append(infoItem('SIRET', formatSiret(e.siret), { source: 'INSEE / SIRENE', mono: true, copy: e.siret, onCopy: handlers.onCopyValue }));
-  adminGrid.append(infoItem('État administratif de l\'établissement', e.estActif ? 'Actif' : (e.etatAdministratif === 'C' ? 'Fermé' : 'Inconnu'), { source: 'SIRENE' }));
-  adminGrid.append(infoItem('État de l\'unité légale', c.estActif ? 'Active' : (c.etatAdministratif === 'C' ? 'Cessée' : 'Inconnu'), { source: 'SIRENE' }));
-  adminGrid.append(infoItem('Code NAF/APE', e.naf || '—', { source: 'INSEE', mono: true }));
-  adminGrid.append(infoItem('Activité', nafLabel(e.naf) || '—', { source: 'Nomenclature NAF rév. 2', wide: true }));
-  adminGrid.append(infoItem('Forme juridique', natureJuridiqueLabel(c.natureJuridique) || c.natureJuridique || '—', { source: 'INSEE, catégories juridiques' }));
-  adminGrid.append(infoItem('Date de création (établissement)', formatDateFr(e.dateCreation) || '—', { source: 'SIRENE' }));
-  if (e.dateFermeture) adminGrid.append(infoItem('Date de fermeture', formatDateFr(e.dateFermeture), { source: 'SIRENE' }));
-  adminGrid.append(infoItem('Effectif de la société', effectifLabel(c.trancheEffectif) || '—', { source: `SIRENE${c.anneeEffectif ? ` (${c.anneeEffectif})` : ''}` }));
-  adminGrid.append(infoItem('Établissements de la société', `${formatNumberFr(c.nombreEtablissements)} dont ${formatNumberFr(c.nombreEtablissementsOuverts)} ouvert(s)`, { source: 'API Recherche d\'entreprises' }));
-  admin.append(adminGrid);
-  info.append(admin);
-
-  const geo = el('div', { class: 'info-section' }, [sectionTitle('Informations géographiques', 'pin')]);
-  const geoGrid = el('div', { class: 'info-grid' });
-  geoGrid.append(infoItem('Adresse complète', e.adresse || 'Non publiée', { source: 'SIRENE', wide: true, copy: addressText(e), onCopy: handlers.onCopyValue }));
-  geoGrid.append(infoItem('Numéro et voie', e.voie || '—', { source: 'SIRENE' }));
-  geoGrid.append(infoItem('Complément / distribution', e.complementAdresse || e.distributionSpeciale || '—', { source: 'SIRENE' }));
-  geoGrid.append(infoItem('Code postal', e.codePostal || '—', { source: 'SIRENE', mono: true }));
-  geoGrid.append(infoItem('Ville', e.commune || '—', { source: 'SIRENE' }));
-  geoGrid.append(infoItem('Code commune INSEE', e.codeCommune || '—', { source: 'COG / INSEE', mono: true }));
-  geoGrid.append(infoItem('Département', e.departement ? `${e.departement} — ${departementLabel(e.departement) || '—'}` : '—', { source: 'COG / INSEE' }));
-  geoGrid.append(infoItem('Région', regionLabel(e.region) || '—', { source: 'COG / INSEE' }));
-  geoGrid.append(infoItem('Pays', e.pays || 'France', { source: 'SIRENE' }));
-  geo.append(geoGrid);
-  info.append(geo);
-
-  const contactsSection = el('div', { class: 'info-section', id: 'contacts-section' });
-  info.append(contactsSection);
-
-  const gpsSection = el('div', { class: 'info-section', id: 'gps-section' });
-  info.append(gpsSection);
-  detailRefs.gpsSection = gpsSection;
-  detailRefs.contactsSection = contactsSection;
-  detailRefs.osmSlot = osmSlot;
   detailRefs.panels = panels;
   detailRefs.container = container;
   detailRefs.tabs = tabs;
@@ -391,29 +313,10 @@ export function renderDetail(container, fiche, handlers) {
   images.append(immersive);
   detailRefs.streetviewHost = streetviewHost;
 
-  /* --- Panneau 3 : établissements ------------------------------------ */
-  const etabPanel = panels.etablissements;
-  etabPanel.append(el('div', { class: 'media-head' }, [
-    el('h3', {}, [icon('list'), `Établissements de ${c.raisonSociale || c.nomComplet}`]),
-    el('span', { class: 'media-note', text: `${formatNumberFr(c.nombreEtablissements)} site(s) déclaré(s), dont ${formatNumberFr(c.nombreEtablissementsOuverts)} ouvert(s).` }),
-  ]));
-  const etabHost = el('div', { id: 'etab-host' });
-  etabPanel.append(etabHost);
-  detailRefs.etabHost = etabHost;
-
   /* --- Panneau 4 : sources ------------------------------------------- */
   panels.sources.append(renderSources(fiche));
 
-  updateOsmSlot(fiche.position);
   return detailRefs;
-}
-
-export function updateOsmSlot(position) {
-  if (!detailRefs.osmSlot) return;
-  clear(detailRefs.osmSlot);
-  detailRefs.osmSlot.append(position
-    ? externalLink(osmLink(position.lat, position.lon), 'Ouvrir dans OpenStreetMap', 'pin')
-    : el('span', { class: 'btn btn-sm btn-outline', style: 'opacity:.5', title: 'Coordonnées indisponibles' }, [icon('pin'), 'OpenStreetMap']));
 }
 
 export function setActiveTab(container, key) {
@@ -425,83 +328,6 @@ export function setActiveTab(container, key) {
   container.querySelectorAll('.tab-panel').forEach((panel) => {
     panel.hidden = panel.dataset.panel !== key;
   });
-}
-
-/* ---------------------------- 4a. Bloc GPS -------------------------- */
-
-export function renderGpsSection(fiche, handlers) {
-  const host = detailRefs.gpsSection;
-  if (!host) return;
-  clear(host);
-  host.append(sectionTitle('Coordonnées GPS et fiabilité', 'target'));
-
-  if (fiche.positionLoading) {
-    host.append(el('p', { class: 'muted', text: 'Géocodage de l\'adresse en cours…' }));
-    return;
-  }
-
-  if (fiche.positionError) {
-    host.append(mediaEmpty({
-      iconName: 'alert',
-      title: 'Coordonnées GPS indisponibles',
-      message: fiche.positionError,
-    }));
-    return;
-  }
-
-  const p = fiche.position;
-  if (!p) {
-    host.append(mediaEmpty({ iconName: 'pin', title: 'Aucune position', message: 'Sélectionnez un établissement pour calculer sa position.' }));
-    return;
-  }
-
-  const box = el('div', { class: 'gps-box' });
-  box.append(el('div', {}, [
-    el('p', { class: 'gps-coords', text: formatCoords(p.lat, p.lon) }),
-    el('p', { class: 'gps-meta', text: `Latitude ${p.lat.toFixed(6)} · Longitude ${p.lon.toFixed(6)} (WGS84 / EPSG:4326)` }),
-  ]));
-  const boxActions = el('div', { style: 'display:flex;gap:8px;flex-wrap:wrap;margin-left:auto' });
-  boxActions.append(el('button', { type: 'button', class: 'btn btn-sm btn-primary', onclick: () => handlers.onCopyGps?.() }, [icon('copy'), 'Copier les coordonnées']));
-  boxActions.append(externalLink(osmLink(p.lat, p.lon), 'OpenStreetMap', 'pin'));
-  boxActions.append(el('button', { type: 'button', class: 'btn btn-sm btn-outline', onclick: () => handlers.onReverseGeocode?.() }, [icon('target'), 'Vérifier l\'adresse à ce point']));
-  box.append(boxActions);
-  host.append(box);
-
-  const precisionBadgeClass = p.precision === 'adresse' ? 'badge-success' : (p.precision === 'commune' ? 'badge-danger' : 'badge-warning');
-  const line = el('div', { class: 'precision-bar' });
-  line.append(el('span', { class: `badge ${precisionBadgeClass}`, text: precisionLabel(p.precision) }));
-  line.append(el('span', { class: `badge badge-neutral`, text: `Confiance ${p.confidence}` }));
-  if (Number.isFinite(p.score)) line.append(el('span', { class: 'badge badge-neutral', text: `Score BAN ${p.score.toFixed(2)}` }));
-  if (p.divergenceM != null) line.append(el('span', { class: 'badge badge-neutral', text: `Écart SIRENE/BAN ${p.divergenceM} m` }));
-  host.append(line);
-
-  host.append(el('p', { class: 'muted-xs', style: 'margin-top:8px', text: `${p.note} Source : ${p.source}.` }));
-  if (p.label) host.append(el('p', { class: 'muted-xs', text: `Adresse géocodée : ${p.label}` }));
-
-  (p.warnings || []).forEach((warning) => {
-    host.append(el('div', { class: 'notice notice-warning', style: 'margin:10px 0 0' }, [icon('alert'), el('span', { text: warning })]));
-  });
-  if (p.banError) {
-    host.append(el('div', { class: 'notice notice-warning', style: 'margin:10px 0 0' }, [icon('alert'), el('span', { text: `Géocodage BAN : ${p.banError}` })]));
-  }
-
-  const reverseHost = el('div', { id: 'reverse-host', style: 'margin-top:12px' });
-  host.append(reverseHost);
-  detailRefs.reverseHost = reverseHost;
-}
-
-export function renderReverseResult(result) {
-  const host = detailRefs.reverseHost;
-  if (!host) return;
-  clear(host);
-  if (!result) {
-    host.append(el('p', { class: 'muted-xs', text: 'Géocodage inverse : aucune adresse trouvée à ces coordonnées.' }));
-    return;
-  }
-  host.append(el('div', { class: 'notice notice-info', style: 'margin:0' }, [
-    icon('info'),
-    el('span', { text: `Géocodage inverse (BAN) : ${result.label} — type « ${result.type} », score ${result.score.toFixed(2)}.` }),
-  ]));
 }
 
 /* --------------------------- 4b. Images ----------------------------- */
@@ -856,220 +682,6 @@ export function renderComplementaryPhotos(siret, photos, handlers) {
   host.append(form);
 }
 
-/* ------------------- 4b bis. Coordonnées de contact ----------------- */
-
-/**
- * Bloc « Coordonnées de contact » du panneau Informations.
- *
- * L'API Recherche d'entreprises ne publie ni téléphone, ni e-mail, ni contact :
- * ces données sont saisies pour l'établissement affiché, stockées sur
- * l'appareil, et toujours présentées comme telles (aucune valeur inventée).
- */
-export function renderContacts(fiche, handlers = {}) {
-  const host = detailRefs.contactsSection;
-  if (!host) return;
-  clear(host);
-
-  const etablissement = fiche?.row?.etablissement;
-  const contact = fiche?.contacts || null;
-  const editing = Boolean(fiche?.contactsEditing);
-  const errors = fiche?.contactErrors || {};
-  const channels = contactChannels(contact);
-
-  const head = el('div', { class: 'contact-head' }, [
-    sectionTitle('Coordonnées de contact', 'phone'),
-    el('span', {
-      class: `badge ${channels.length ? 'badge-neutral' : 'badge-warning'}`,
-      text: channels.length ? 'Saisie manuelle' : 'Non renseignées',
-    }),
-  ]);
-  host.append(head);
-
-  host.append(el('p', {
-    class: 'contact-note',
-    text: 'L’API officielle Recherche d’entreprises ne publie pas les coordonnées de contact. '
-      + 'Celles-ci sont saisies par vos soins pour cet établissement : elles restent sur cet appareil '
-      + 'et sont reprises dans les exports et dans la fiche transmise au formulaire.',
-  }));
-
-  if (channels.length) {
-    const list = el('ul', { class: 'contact-list' });
-    channels.forEach((channel) => {
-      const valueNode = el('div', { class: 'contact-value' });
-      if (channel.href) {
-        valueNode.append(el('a', {
-          class: 'contact-link',
-          href: channel.href,
-          text: channel.display,
-          title: channel.key === 'email' ? `Écrire à ${channel.display}` : `Appeler ${channel.display}`,
-        }));
-      } else {
-        valueNode.append(el('span', { text: channel.display }));
-      }
-      valueNode.append(copyButton(channel.value, channel.label, handlers.onCopyValue));
-      list.append(el('li', { class: 'contact-item' }, [
-        el('span', { class: 'contact-icon' }, [icon(channel.icon)]),
-        el('div', { class: 'contact-text' }, [
-          el('p', { class: 'contact-label', text: channel.label }),
-          valueNode,
-        ]),
-      ]));
-    });
-    host.append(list);
-
-    if (contact?.note) host.append(el('p', { class: 'contact-note contact-note--small', text: contact.note }));
-    if (contact?.updatedAt) {
-      host.append(el('p', {
-        class: 'contact-meta',
-        text: `Dernière mise à jour : ${formatDateTimeFr(contact.updatedAt)} · stockée uniquement sur cet appareil`,
-      }));
-    }
-  } else if (!editing) {
-    host.append(el('p', {
-      class: 'contact-empty',
-      text: 'Aucune coordonnée pour cet établissement. Ajoutez le téléphone, l’e-mail ou la personne à joindre '
-        + 'si vous les connaissez : elles seront conservées localement et exportées avec la fiche.',
-    }));
-  }
-
-  if (!editing) {
-    host.append(el('div', { class: 'contact-actions' }, [
-      el('button', {
-        type: 'button',
-        class: `btn btn-sm ${channels.length ? 'btn-outline' : 'btn-primary'}`,
-        onclick: () => handlers.onEditContacts?.(),
-      }, [icon(channels.length ? 'settings' : 'plus'), channels.length ? 'Modifier les coordonnées' : 'Ajouter des coordonnées']),
-    ]));
-    return;
-  }
-
-  /* --- Formulaire de saisie ------------------------------------------ */
-  const form = el('form', {
-    class: 'contact-form',
-    novalidate: true,
-    onsubmit: (event) => {
-      event.preventDefault();
-      const data = new FormData(event.target);
-      handlers.onSaveContacts?.({
-        telephone: String(data.get('telephone') || ''),
-        mobile: String(data.get('mobile') || ''),
-        email: String(data.get('email') || ''),
-        contact: String(data.get('contact') || ''),
-        note: String(data.get('note') || ''),
-      });
-    },
-  });
-
-  CONTACT_FIELDS.forEach((field) => {
-    const inputId = `contact-${field.key}`;
-    const message = errors[field.key];
-    form.append(el('div', { class: `field${message ? ' has-error' : ''}` }, [
-      el('label', { for: inputId }, [
-        icon(field.icon),
-        field.label,
-      ]),
-      el('input', {
-        type: field.type,
-        id: inputId,
-        name: field.key,
-        maxlength: CONTACT_LIMITS[field.key],
-        placeholder: field.placeholder,
-        autocomplete: field.key === 'email' ? 'email' : (field.key === 'contact' ? 'name' : 'tel'),
-        value: (contact && contact[field.key]) || '',
-        'aria-invalid': message ? 'true' : null,
-        'aria-describedby': message ? `${inputId}-error` : `${inputId}-help`,
-      }),
-      el('p', {
-        class: message ? 'field-error' : 'field-help',
-        id: message ? `${inputId}-error` : `${inputId}-help`,
-        text: message || field.help,
-      }),
-    ]));
-  });
-
-  form.append(el('div', { class: 'field field-wide' }, [
-    el('label', { for: 'contact-note' }, 'Note (facultatif)'),
-    el('input', {
-      type: 'text',
-      id: 'contact-note',
-      name: 'note',
-      maxlength: CONTACT_LIMITS.note,
-      placeholder: 'Horaires, standard saturé, contact préférentiel…',
-      value: (contact && contact.note) || '',
-    }),
-  ]));
-
-  const buttons = el('div', { class: 'contact-form-actions' }, [
-    el('button', { type: 'submit', class: 'btn btn-sm btn-primary' }, [icon('check'), 'Enregistrer']),
-    el('button', {
-      type: 'button', class: 'btn btn-sm btn-outline', onclick: () => handlers.onCancelContacts?.(),
-    }, ['Annuler']),
-  ]);
-  if (contact) {
-    buttons.append(el('button', {
-      type: 'button',
-      class: 'btn btn-sm btn-danger contact-remove',
-      onclick: () => handlers.onRemoveContacts?.(),
-      title: 'Supprimer les coordonnées enregistrées pour cet établissement',
-    }, [icon('trash'), 'Supprimer']));
-  }
-  form.append(buttons);
-  host.append(form);
-
-  if (!etablissement) return;
-  form.dataset.siret = etablissement.siret;
-}
-
-/* ----------------------- 4c. Établissements ------------------------- */
-
-export function renderEtablissements({ loading, etablissements, currentSiret, error, notice }, handlers) {
-  const host = detailRefs.etabHost;
-  if (!host) return;
-  clear(host);
-
-  const toolbar = el('div', { class: 'media-head' });
-  const cpInput = el('input', { type: 'text', id: 'etab-cp', placeholder: 'Filtrer par code postal', maxlength: '5', style: 'max-width:200px' });
-  toolbar.append(cpInput);
-  toolbar.append(el('button', {
-    type: 'button', class: 'btn btn-sm btn-outline',
-    onclick: () => handlers.onLoadEtablissements?.(cpInput.value.trim()),
-  }, [icon('search'), 'Charger les établissements']));
-  host.append(toolbar);
-
-  if (notice) host.append(el('div', { class: 'notice notice-info', style: 'margin:0 0 12px' }, [icon('info'), el('span', { text: notice })]));
-  if (loading) { host.append(el('p', { class: 'muted', text: 'Chargement des établissements…' })); return; }
-  if (error) { host.append(el('div', { class: 'notice notice-error', style: 'margin:0' }, [icon('alert'), el('span', { text: error })])); return; }
-  if (!etablissements?.length) {
-    host.append(mediaEmpty({
-      iconName: 'list',
-      title: 'Liste non chargée',
-      message: 'Cliquez sur « Charger les établissements » pour interroger l\'API. Vous pouvez restreindre la recherche à un code postal.',
-    }));
-    return;
-  }
-
-  const list = el('div', { class: 'etab-list' });
-  etablissements.forEach((etablissement) => {
-    const row = el('div', { class: `etab-row${etablissement.siret === currentSiret ? ' is-current' : ''}` });
-    const main = el('div', { class: 'etab-main' });
-    main.append(el('p', { style: 'font-weight:600', text: `${etablissement.estSiege ? 'Siège' : 'Établissement'} · ${etablissement.nomAffiche}` }));
-    main.append(el('p', { class: 'etab-addr', text: etablissement.adresse || `${etablissement.codePostal} ${etablissement.commune}` }));
-    main.append(el('p', { class: 'muted-xs mono', text: `SIRET ${formatSiret(etablissement.siret)}` }));
-    row.append(main);
-    const side = el('div', { style: 'display:flex;gap:8px;align-items:center' });
-    side.append(statusBadge(etablissement));
-    if (etablissement.siret !== currentSiret) {
-      side.append(el('button', {
-        type: 'button', class: 'btn btn-sm btn-outline',
-        onclick: () => handlers.onSelectSiret?.(etablissement.siret),
-      }, 'Ouvrir'));
-    }
-    row.append(side);
-    list.append(row);
-  });
-  host.append(list);
-}
-
 /* --------------------------- 4d. Sources ---------------------------- */
 
 function renderSources(fiche) {
@@ -1314,7 +926,7 @@ export function renderSettings(container, { settings: current, info, mapillaryAc
   }));
   mapGroup.append(settingRow({
     name: 'Ouvrir directement l\'onglet Images',
-    description: 'À l\'ouverture d\'une fiche, afficher la vue aérienne et les photos de rue plutôt que les informations administratives.',
+    description: 'À l\'ouverture d\'une fiche, afficher la vue aérienne et les photos de rue plutôt que l\'onglet Voir toiture ou Parking.',
     control: switchControl(current.autoOpenAerial, (value) => handlers.onSetting('autoOpenAerial', value), 'Ouvrir l\'onglet images'),
   }));
   mapGroup.append(settingRow({
