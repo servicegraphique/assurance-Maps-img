@@ -10,10 +10,10 @@
  */
 
 import config from './config.js';
-import { AppError, ERR, toUserMessage, debounce, formatCoords, isValidCodePostal, isPlausibleFranceCoords } from './utils.js';
+import { AppError, ERR, toUserMessage, debounce, formatCoords, isPlausibleFranceCoords } from './utils.js';
 import { loadLabels } from './labels.js';
 import * as api from './entreprise-api.js';
-import { resolvePosition, reverseGeocode, ping as pingGeocoding } from './geocoding.js';
+import { resolvePosition, ping as pingGeocoding } from './geocoding.js';
 import { runSearch, summarize, validateCriteria, readCriteria, sortRows } from './search.js';
 import * as mapModule from './map.js';
 import * as images from './images.js';
@@ -24,7 +24,6 @@ import * as ui from './ui.js';
 import {
   settings, history, favorites, userContacts, storageInfo, purgeCache, purgeUserData,
 } from './storage.js';
-import { validateContactInput, hasContact, buildContactRecord } from './contact.js';
 import { createEmbedBridge, selectionPayload } from './embed.js';
 
 /* ==================================================================== */
@@ -45,7 +44,6 @@ const state = {
   // D. Vue immersive : rien n'est chargé tant que `loaded` reste faux.
   streetview: { providerKey: null, loaded: false, heading: 0, photoIndex: 0 },
   googleStreetView: { configured: false, checked: false, message: '' },
-  etabs: { loading: false, list: null, error: null, notice: null },
   map: null,
   aerial: null,
   searchAbort: null,
@@ -311,9 +309,7 @@ async function selectEtablissement(siret, options = {}) {
     positionError: null,
     // Coordonnées de contact : saisies par l'utilisateur, stockées localement.
     contacts: userContacts.get(siret),
-    contactsEditing: false,
-    contactErrors: {},
-    activeTab: current.autoOpenAerial ? 'images' : 'fiche',
+    activeTab: current.autoOpenAerial ? 'images' : 'toiture',
     isFavorite: favorites.has(siret),
     apiUrl: `https://recherche-entreprises.api.gouv.fr/search?q=${row.etablissement.siret}`,
   };
@@ -321,14 +317,10 @@ async function selectEtablissement(siret, options = {}) {
   // Nouvelle fiche : on referme toute vue immersive précédente (elle pointait
   // sur un autre bâtiment) et on repart de la source préférée.
   state.streetview = { providerKey: null, loaded: false, heading: config.streetView.heading, photoIndex: 0 };
-  state.etabs = { loading: false, list: null, error: null, notice: null };
 
   ui.renderDetail(dom['detail-card'], state.fiche, detailHandlers());
-  ui.renderContacts(state.fiche, detailHandlers());
-  ui.renderGpsSection(state.fiche, detailHandlers());
   ui.setActiveTab(dom['detail-card'], state.fiche.activeTab);
   ui.renderComplementaryPhotos(siret, images.getComplementaryPhotos(siret), detailHandlers());
-  ui.renderEtablissements({ ...state.etabs, currentSiret: siret }, detailHandlers());
 
   state.map?.select(siret, { position: state.fiche.position, pan: true, openPopup: !options.fromMap });
   dom['btn-copy-gps'].disabled = !state.fiche.position;
@@ -382,8 +374,6 @@ async function computePosition(row) {
     state.fiche.positionError = toUserMessage(error);
     dom['btn-copy-gps'].disabled = true;
   }
-  ui.renderGpsSection(state.fiche, detailHandlers());
-  ui.updateOsmSlot(state.fiche.position);
   if (state.fiche.activeTab === 'images') showImagesTab();
 }
 
@@ -524,74 +514,7 @@ async function loadStreetPhotos() {
 /* ------------------------ Callbacks de la fiche --------------------- */
 
 function detailHandlers() {
-  const copy = async (value, label) => {
-    const { copyText } = await import('./utils.js');
-    const ok = await copyText(value);
-    ui.toast(ok ? `Copié : ${label}` : 'Copie impossible sur ce navigateur', ok ? 'success' : 'error');
-  };
-
   return {
-    onCopyValue: (value, label) => copy(value, label || 'la valeur'),
-
-    /* Coordonnées de contact (téléphone fixe/mobile, e-mail, contact).
-       L'API officielle ne les publie pas : elles sont saisies et stockées
-       localement, puis reprises dans les exports et le formulaire. */
-    onEditContacts: () => {
-      state.fiche.contactsEditing = true;
-      state.fiche.contactErrors = {};
-      ui.renderContacts(state.fiche, detailHandlers());
-    },
-    onCancelContacts: () => {
-      state.fiche.contactsEditing = false;
-      state.fiche.contactErrors = {};
-      ui.renderContacts(state.fiche, detailHandlers());
-    },
-    onSaveContacts: (payload = {}) => {
-      const siret = state.fiche?.row?.etablissement?.siret;
-      if (!siret) return;
-      const { ok, errors, value } = validateContactInput(payload);
-      if (!ok) {
-        state.fiche.contactErrors = errors;
-        ui.renderContacts(state.fiche, detailHandlers());
-        ui.toast('Vérifiez les coordonnées saisies.', 'error');
-        return;
-      }
-      if (!hasContact(value)) {
-        state.fiche.contactErrors = {};
-        ui.toast('Renseignez au moins un téléphone, un e-mail ou un contact.', 'error');
-        ui.renderContacts(state.fiche, detailHandlers());
-        return;
-      }
-      const record = buildContactRecord(payload, { note: payload.note });
-      userContacts.save(siret, record);
-      state.fiche.contacts = record;
-      state.fiche.contactsEditing = false;
-      state.fiche.contactErrors = {};
-      ui.renderContacts(state.fiche, detailHandlers());
-      ui.toast('Coordonnées enregistrées sur cet appareil.', 'success');
-    },
-    onRemoveContacts: () => {
-      const siret = state.fiche?.row?.etablissement?.siret;
-      if (!siret) return;
-      userContacts.remove(siret);
-      state.fiche.contacts = null;
-      state.fiche.contactsEditing = false;
-      state.fiche.contactErrors = {};
-      ui.renderContacts(state.fiche, detailHandlers());
-      ui.toast('Coordonnées supprimées.', 'info');
-    },
-    onCopyAddress: () => copy(exporter.addressText(state.fiche.row.etablissement), 'l\'adresse'),
-    onCopySiret: () => copy(state.fiche.row.etablissement.siret, 'le SIRET'),
-    onCopyGps: () => copy(exporter.gpsText(state.fiche.position), 'les coordonnées GPS'),
-    onExportFiche: () => {
-      const { filename } = exporter.exportFicheCsv({
-        etablissement: state.fiche.row.etablissement,
-        entreprise: state.fiche.row.entreprise,
-        position: state.fiche.position,
-        contacts: state.fiche.contacts,
-      });
-      ui.toast(`Fiche exportée : ${filename}`, 'success');
-    },
     onToggleFavorite: () => {
       destroyAerial();
       const siret = state.fiche.row.etablissement.siret;
@@ -610,25 +533,12 @@ function detailHandlers() {
       }
       ui.renderDetail(dom['detail-card'], state.fiche, detailHandlers());
       ui.setActiveTab(dom['detail-card'], state.fiche.activeTab);
-      ui.renderContacts(state.fiche, detailHandlers());
-      ui.renderGpsSection(state.fiche, detailHandlers());
       refreshCurrentTab();
     },
     onTabChange: (tab) => {
       state.fiche.activeTab = tab;
       ui.setActiveTab(dom['detail-card'], tab);
       refreshCurrentTab();
-    },
-    onReverseGeocode: async () => {
-      if (!state.fiche.position) return;
-      ui.toast('Géocodage inverse en cours…', 'info', 1800);
-      try {
-        const result = await reverseGeocode(state.fiche.position.lat, state.fiche.position.lon);
-        ui.renderReverseResult(result);
-      } catch (error) {
-        ui.renderReverseResult(null);
-        ui.toast(toUserMessage(error), 'error');
-      }
     },
     onAerialZoom: (delta) => {
       if (!state.aerial) return;
@@ -684,39 +594,13 @@ function detailHandlers() {
       ui.renderComplementaryPhotos(state.fiche.row.etablissement.siret, images.getComplementaryPhotos(state.fiche.row.etablissement.siret), detailHandlers());
       ui.toast('Photographie retirée.', 'info');
     },
-    onLoadEtablissements: async (codePostal) => {
-      if (codePostal && !isValidCodePostal(codePostal)) {
-        ui.toast('Code postal invalide (5 caractères).', 'error');
-        return;
-      }
-      const siret = state.fiche.row.etablissement.siret;
-      state.etabs = { loading: true, list: null, error: null, notice: null };
-      ui.renderEtablissements({ ...state.etabs, currentSiret: siret }, detailHandlers());
-      try {
-        const result = await api.fetchEtablissementsOfSiren(state.fiche.row.entreprise.siren, { codePostal });
-        if (state.selectedSiret !== siret) return;
-        const total = result.entreprise?.nombreEtablissements || 0;
-        state.etabs = {
-          loading: false,
-          list: result.etablissements,
-          error: null,
-          notice: `L'API publique renvoie le siège et les établissements correspondant au filtre (100 maximum par page)`
-            + `${codePostal ? ` pour le code postal ${codePostal}` : ''}. ${total > result.etablissements.length ? `Cette société déclare ${total} établissements : la liste exhaustive n'est pas exposée par cette API, consultez la fiche officielle pour la totalité.` : ''}`,
-        };
-      } catch (error) {
-        if (state.selectedSiret !== siret) return;
-        state.etabs = { loading: false, list: null, error: toUserMessage(error), notice: null };
-      }
-      ui.renderEtablissements({ ...state.etabs, currentSiret: siret }, detailHandlers());
-    },
-    onSelectSiret: (siret) => selectEtablissement(siret),
+
   };
 }
 
 function refreshCurrentTab() {
   const tab = state.fiche?.activeTab;
   if (tab === 'images') showImagesTab();
-  if (tab === 'etablissements') ui.renderEtablissements({ ...state.etabs, currentSiret: state.selectedSiret }, detailHandlers());
 }
 
 /* ==================================================================== */
