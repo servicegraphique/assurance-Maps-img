@@ -660,3 +660,25 @@ les mêmes appels. En hébergement statique, les requêtes directes dépendent d
 CORS de chaque service. Les flux WFS sont limités à 500 objets ; un message
 signale la limite atteinte. Turf.js, osmtogeojson et Leaflet-Geoman sont servis
 localement avec leurs licences dans `vendor/`.
+
+### Météo et vue de la zone
+
+L'onglet compare la météo modélisée Open-Meteo au point de l'établissement :
+conditions courantes et journée à J-7 ou J-14 (températures, précipitations,
+vent). Les heures et dates sont celles du fuseau local fourni par le service.
+Ces valeurs ne sont pas nécessairement des observations d'une station. Le bouton
+« Actualiser » redemande la météo ; les photographies peuvent provenir du cache
+existant des fournisseurs. Les erreurs de service sont signalées.
+
+Les photographies de rue à proximité sont affichées dans la comparaison
+uniquement si leur date de prise de vue est connue, non future et comprise dans
+la période J-14 à J-7, ou dans la journée locale courante. La liste des clichés
+recherchés est limitée et peut être incomplète. Une photo prise aujourd'hui
+n'est pas une vue en direct. Les tuiles IGN BD ORTHO® sont présentées seulement
+comme référence de date inconnue : elles ne permettent pas d'affirmer qu'elles
+représentent la zone maintenant ou à J-7/J-14. Le lien « Comparer les millésimes
+IGN » permet de consulter les archives disponibles ailleurs. Les images aériennes
+et de rue en temps réel ne sont pas fournies par ces services.
+
+Le serveur local relaie Open-Meteo sur `/api/weather` avec des coordonnées
+validées ; en hébergement statique, l'appel au service se fait directement.

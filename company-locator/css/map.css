@@ -257,3 +257,12 @@ body.has-fullscreen-map { overflow: hidden; }
 .site-details { padding: 12px; border: 1px solid var(--c-border); border-radius: var(--r-md); margin: 12px 0; }
 .site-details p { margin-top: 4px; }
 .site-instructions { color: var(--c-text-2); font-size: var(--fs-sm); line-height: 1.5; margin: 8px 0; }
+.weather-controls { margin: 12px 0; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.weather-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 12px; }
+.weather-card { padding: 14px; border: 1px solid var(--c-border); border-radius: var(--r-md); }
+.weather-card p { margin-top: 8px; }
+.weather-photos { margin-top: 12px; }
+.weather-photo { margin-top: 10px; }
+.weather-photo img { width: 100%; max-height: 230px; object-fit: cover; border-radius: var(--r-md); }
+.weather-aerial { margin-top: 18px; }
+.weather-map { height: 300px; margin: 10px 0; z-index: 0; background: #e8eef5; }

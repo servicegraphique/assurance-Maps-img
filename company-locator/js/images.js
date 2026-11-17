@@ -60,7 +60,7 @@ function normalizePanoramaxFeature(feature, origin) {
     providerName: 'Panoramax',
     thumbUrl: safeUrl(thumb),
     fullUrl: safeUrl(full),
-    capturedAt: props.datetime || props.created || '',
+    capturedAt: props.datetime || '', // La date d'ajout n'est pas une date de prise de vue.
     direction: Number.isFinite(Number(props['view:azimuth'])) ? Number(props['view:azimuth']) : null,
     isPano: Number(fov) === 360,
     lat,

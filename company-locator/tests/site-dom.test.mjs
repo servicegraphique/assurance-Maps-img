@@ -39,6 +39,12 @@ const button = label => [...host.querySelectorAll('button')].find(b => b.textCon
 click(button('Dessiner une surface'));
 assert.equal(map.pm.Draw.Polygon.enabled(), true);
 assert.ok(button('Annuler le dessin'));
+// Le clic DOM réel sur le bâtiment bleu doit parvenir à la carte, pas seulement un événement simulé sur map.
+assert.ok(layers[0]._path, 'chemin SVG du bâtiment');
+layers[0]._path.dispatchEvent(new window.MouseEvent('click', { bubbles: true, clientX: 350, clientY: 200 }));
+assert.equal(map.pm.Draw.Polygon._markers.length, 1, 'un clic sur le polygone bleu crée un sommet');
+click(button('Annuler le dessin'));
+click(button('Dessiner une surface'));
 // Geoman reçoit les clics géographiques, puis la fermeture du premier sommet.
 for (const point of [[48,2], [48,2.0002], [48.0001,2.0002], [48.0001,2]]) {
   map.fire('click', { latlng: L.latLng(point), originalEvent: new window.MouseEvent('click') });

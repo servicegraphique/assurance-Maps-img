@@ -265,7 +265,9 @@ export function renderDetail(container, fiche, handlers) {
   const siteHost = el('div', { id: 'site-host' });
   panels.toiture.append(siteHost);
   detailRefs.siteHost = siteHost;
-  panels.meteo.append(mediaEmpty({ iconName: 'map', title: 'Météo et Vue actuel du zone', message: 'Fonctionnalité à venir.' }));
+  const weatherHost = el('div', { id: 'weather-host' });
+  panels.meteo.append(weatherHost);
+  detailRefs.weatherHost = weatherHost;
 
   detailRefs.panels = panels;
   detailRefs.container = container;

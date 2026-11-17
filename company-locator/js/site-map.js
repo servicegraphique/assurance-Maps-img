@@ -76,6 +76,7 @@ export function createSiteMap(host, position) {
   function addManual(layer) {
     layer.setStyle({ color: '#9333ea', fillOpacity: 0.2 });
     layer.on('click', e => {
+      if (drawing) return; // Le clic doit remonter à Geoman même sur un polygone.
       if (selectingPoint) { L.DomEvent.stopPropagation(e); choosePoint(e.latlng); return; }
       showDetails(layer.toGeoJSON(), layer, 'Polygone', true);
     });
@@ -138,6 +139,7 @@ export function createSiteMap(host, position) {
       onEachFeature: (feature, layer) => {
         layer.options.pmIgnore = true;
         layer.on('click', e => {
+          if (drawing) return; // Laisser Leaflet transmettre le clic de dessin à la carte.
           L.DomEvent.stopPropagation(e);
           if (selectingPoint) { choosePoint(e.latlng); return; }
           showDetails(feature, layer, spec.kind);
