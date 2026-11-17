@@ -1,12 +1,15 @@
 import { el, safeUrl } from './utils.js';
 import { BASE_LAYERS, ignTimeLink } from './map.js';
 import { fetchWeather, weatherDescription, photosForPeriod } from './weather-data.js';
-import { fetchStreetPhotos } from './images.js';
+import { fetchPanoramax } from './images.js';
+import { fetchSatellite, satellitePeriods } from './satellite.js';
 import { proxyState } from './transport.js';
 
 export function createWeatherView(host, position, settings) {
   let controller = new AbortController(), requestId = 0;
   let destroyed = false, weather = null, photos = null, photoError = '', map = null;
+  let satellite = { historic: null, recent: null }, datedPhotos = { historic: null, today: null };
+  let periods = satellitePeriods();
   const controls = el('div', { class: 'weather-controls' });
   const select = el('select', { 'aria-label': 'Date météo passée' }, [
     el('option', { value: '7', text: 'Il y a 7 jours' }),
@@ -41,9 +44,10 @@ export function createWeatherView(host, position, settings) {
   } else mapNode.textContent = 'Carte indisponible.';
 
   const num = (value, suffix) => value == null || !Number.isFinite(Number(value)) ? 'Non disponible' : `${Number(value).toLocaleString('fr-FR')} ${suffix}`;
-  function photoSection(title, list, empty) {
+  function photoSection(title, list, empty, state = null) {
     const block = el('div', { class: 'weather-photos' }, [el('h4', { text: title })]);
-    if (photos === null) block.append(el('p', { text: 'Recherche de photographies de rue…' }));
+    if (state?.error) block.append(el('p', { text: state.error }));
+    else if (state?.loading || (!state && photos === null)) block.append(el('p', { text: 'Recherche de photographies de rue…' }));
     else if (!list.length) block.append(el('p', { text: photoError || empty }));
     else list.slice(0, 3).forEach(photo => {
       const url = safeUrl(photo.thumbUrl), source = safeUrl(photo.pageUrl);
@@ -57,60 +61,95 @@ export function createWeatherView(host, position, settings) {
     });
     return block;
   }
+  function satelliteSection(key) {
+    const range = periods[key];
+    const block = el('div', { class: 'weather-photos' }, [el('h4', { text: `Satellite Sentinel‑2 — ${range.start} à ${range.end} (UTC)` })]);
+    const result = satellite[key];
+    if (!result) { block.append(el('p', { text: 'Recherche de scènes satellite…' })); return block; }
+    if (result.error) { block.append(el('p', { text: `Satellite indisponible : ${result.error}` })); return block; }
+    if (!result.scenes.length) { block.append(el('p', { text: 'Aucune scène satellite datée trouvée pour cette période.' })); return block; }
+    const scene = result.scenes[0];
+    block.append(el('p', { text: `Acquisition : ${scene.date} · Nuages sur la scène : ${scene.cloud === null ? 'non renseignés' : `${scene.cloud.toFixed(1)} %`}. Pas une image en direct.` }));
+    const image = el('img', { src: scene.thumbnail, alt: 'Aperçu régional de la scène satellite Sentinel-2', loading: 'lazy', class: 'satellite-preview' });
+    image.addEventListener('error', () => { image.remove(); block.append(el('p', { text: 'Aperçu satellite indisponible pour cette scène.' })); });
+    block.append(image, el('p', { class: 'muted-xs', text: 'Aperçu de toute la scène régionale, non centré sur l’adresse. Résolution native : 10 m ; insuffisante pour identifier une toiture. Les nuages indiqués concernent la scène entière.' }));
+    if (scene.source) block.append(el('a', { href: scene.source, target: '_blank', rel: 'noopener noreferrer', text: 'Métadonnées de la scène' }));
+    block.append(el('p', { class: 'muted-xs', text: 'Contient des données Copernicus Sentinel modifiées, distribuées par Element 84 / AWS.' }));
+    return block;
+  }
   function render() {
     if (destroyed) return;
     historicBody.replaceChildren(); currentBody.replaceChildren();
     if (!weather) {
       historicBody.append(el('p', { text: 'Chargement de la météo…' }));
       currentBody.append(el('p', { text: 'Chargement de la météo…' }));
-      return;
-    }
-    if (weather.error) {
+    } else if (weather.error) {
       historicBody.append(el('p', { text: weather.error })); currentBody.append(el('p', { text: weather.error }));
-      historicBody.append(el('p', { text: 'Impossible de vérifier les dates locales des photos sans la réponse météo.' }));
-      return;
+    } else {
+      const day = weather.current.time.slice(0, 10);
+      const i = weather.daily.time.indexOf(day);
+      const selected = i >= 0 ? i - Number(select.value) : -1;
+      const date = weather.daily.time[selected];
+      if (date) {
+        const d = weather.daily;
+        historicBody.append(el('p', { text: `Météo modélisée du ${date} (${weather.timezone}) : ${weatherDescription(d.weather_code?.[selected])}` }),
+          el('p', { text: `Min. ${num(d.temperature_2m_min?.[selected], '°C')} · Max. ${num(d.temperature_2m_max?.[selected], '°C')} · Précipitations ${num(d.precipitation_sum?.[selected], 'mm')} · Vent max. ${num(d.wind_speed_10m_max?.[selected], 'km/h')}` }));
+      } else historicBody.append(el('p', { text: 'Météo passée indisponible pour cette date.' }));
+      const c = weather.current;
+      currentBody.append(el('p', { text: `Météo modélisée au ${c.time} (${weather.timezone}) : ${weatherDescription(c.weather_code)}` }),
+        el('p', { text: `${num(c.temperature_2m, '°C')} · Humidité ${num(c.relative_humidity_2m, '%')} · Précipitations ${num(c.precipitation, 'mm')} · Vent ${num(c.wind_speed_10m, 'km/h')}` }));
     }
-    const day = weather.current.time.slice(0, 10);
-    const i = weather.daily.time.indexOf(day);
-    const selected = i >= 0 ? i - Number(select.value) : -1;
-    const date = weather.daily.time[selected];
-    if (date) {
-      const d = weather.daily;
-      historicBody.append(el('p', { text: `Météo modélisée du ${date} (${weather.timezone}) : ${weatherDescription(d.weather_code?.[selected])}` }),
-        el('p', { text: `Min. ${num(d.temperature_2m_min?.[selected], '°C')} · Max. ${num(d.temperature_2m_max?.[selected], '°C')} · Précipitations ${num(d.precipitation_sum?.[selected], 'mm')} · Vent max. ${num(d.wind_speed_10m_max?.[selected], 'km/h')}` }));
-    } else historicBody.append(el('p', { text: 'Météo passée indisponible pour cette date.' }));
-    const c = weather.current;
-    currentBody.append(el('p', { text: `Météo modélisée au ${c.time} (${weather.timezone}) : ${weatherDescription(c.weather_code)}` }),
-      el('p', { text: `${num(c.temperature_2m, '°C')} · Humidité ${num(c.relative_humidity_2m, '%')} · Précipitations ${num(c.precipitation, 'mm')} · Vent ${num(c.wind_speed_10m, 'km/h')}` }));
-    const from = i >= 14 ? weather.daily.time[i - 14] : null, to = i >= 7 ? weather.daily.time[i - 7] : null;
-    let older = [], today = [];
-    try { older = photosForPeriod(photos || [], from, to, weather.timezone); today = photosForPeriod(photos || [], day, day, weather.timezone); }
-    catch { photoError = 'Fuseau horaire des photographies indisponible.'; }
-    historicBody.append(el('p', { text: 'Image aérienne datée de cette période : indisponible dans les sources intégrées.' }), photoSection(`Vue de rue photographiée entre ${from || 'J-14'} et ${to || 'J-7'}`, older, 'Aucune photographie datée trouvée dans cette période parmi les résultats à proximité.'));
-    currentBody.append(el('p', { text: 'Image aérienne en direct : indisponible dans les sources intégrées.' }), photoSection('Vue de rue photographiée aujourd’hui — pas une vidéo en direct', today, 'Aucune photographie datée d’aujourd’hui trouvée parmi les résultats à proximité.'));
+    historicBody.append(satelliteSection('historic'));
+    currentBody.append(satelliteSection('recent'));
+    const older = photosForPeriod(datedPhotos.historic?.photos || [], periods.historic.start, periods.historic.end, 'UTC');
+    const today = photosForPeriod(datedPhotos.today?.photos || [], periods.recent.end, periods.recent.end, 'UTC');
+    historicBody.append(photoSection(`Vue de rue entre ${periods.historic.start} et ${periods.historic.end} (UTC)`, older, 'Aucune photo datée trouvée pour cette période.', datedPhotos.historic || { loading: true }));
+    currentBody.append(photoSection('Vue de rue photographiée aujourd’hui — pas une vidéo en direct', today, 'Aucune photo datée d’aujourd’hui trouvée.', datedPhotos.today || { loading: true }));
+    const fallback = photosForPeriod(photos || [], '1900-01-01', periods.recent.end, 'UTC');
+    if (photos !== null && datedPhotos.today?.photos && !today.length && fallback.length) currentBody.append(photoSection('Photo récente parmi les résultats — hors période, pas une vue actuelle', fallback.slice(0, 1), ''));
   }
   select.addEventListener('change', render);
   render();
   function load() {
     controller.abort(); controller = new AbortController();
     const signal = controller.signal, id = ++requestId;
-    weather = null; photos = null; photoError = ''; render();
+    weather = null; photos = null; photoError = ''; satellite = { historic: null, recent: null }; datedPhotos = { historic: null, today: null }; periods = satellitePeriods(); render();
     fetchWeather(position.lat, position.lon, { signal, proxy: proxyState().available }).then(value => {
       if (destroyed || id !== requestId) return; weather = value; render();
     }, error => {
       if (destroyed || id !== requestId || signal.aborted) return;
       weather = { error: `Météo indisponible : ${error.message}` }; render();
     });
-    fetchStreetPhotos({ lat: position.lat, lon: position.lon, radiusM: settings.streetRadiusM, providers: settings.streetProviders, limit: 50, signal }).then(result => {
+    fetchPanoramax({ lat: position.lat, lon: position.lon, radiusM: settings.streetRadiusM, limit: 30, signal, sortByRecent: true }).then(result => {
       if (destroyed || id !== requestId) return;
       photos = result.photos;
-      const failures = result.sources.filter(source => source.status === 'error' || source.status === 'unavailable');
-      if (!photos.length && failures.length) photoError = 'Photographies indisponibles ou sources non configurées ; réessayez plus tard.';
+      if (result.skipped) photoError = 'Panoramax est désactivé.';
       render();
     }, () => {
       if (destroyed || id !== requestId || signal.aborted) return;
-      photos = []; photoError = 'Photographies de rue indisponibles.'; render();
+      photos = []; photoError = 'Panoramax indisponible ; réessayez plus tard.'; render();
     });
+    for (const key of ['historic', 'today']) {
+      const start = key === 'historic' ? periods.historic.start : periods.recent.end;
+      const end = key === 'historic' ? periods.historic.end : periods.recent.end;
+      fetchPanoramax({ lat: position.lat, lon: position.lon, radiusM: settings.streetRadiusM, limit: 30, signal, sortByRecent: true, datetime: `${start}T00:00:00Z/${end}T23:59:59Z` }).then(result => {
+        if (destroyed || id !== requestId) return;
+        datedPhotos[key] = result.skipped ? { error: 'Panoramax est désactivé.' } : { photos: result.photos }; render();
+      }, () => {
+        if (destroyed || id !== requestId || signal.aborted) return;
+        datedPhotos[key] = { error: 'Recherche Panoramax indisponible ; réessayez plus tard.' }; render();
+      });
+    }
+    for (const key of ['historic', 'recent']) {
+      const range = periods[key];
+      fetchSatellite(position.lat, position.lon, range.start, range.end, { signal }).then(scenes => {
+        if (destroyed || id !== requestId) return;
+        satellite[key] = { scenes }; render();
+      }, error => {
+        if (destroyed || id !== requestId || signal.aborted) return;
+        satellite[key] = { error: error.userMessage || error.message }; render();
+      });
+    }
   }
   reload.addEventListener('click', load);
   load();

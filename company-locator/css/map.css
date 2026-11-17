@@ -266,3 +266,4 @@ body.has-fullscreen-map { overflow: hidden; }
 .weather-photo img { width: 100%; max-height: 230px; object-fit: cover; border-radius: var(--r-md); }
 .weather-aerial { margin-top: 18px; }
 .weather-map { height: 300px; margin: 10px 0; z-index: 0; background: #e8eef5; }
+.satellite-preview { display: block; width: 100%; max-width: 420px; max-height: 260px; object-fit: contain; margin: 8px 0; background: #eef2f7; }

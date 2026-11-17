@@ -39,6 +39,13 @@ const SERVICES = {
     // CORS ouvert : appel direct possible, le relais sert de secours.
     preferProxy: false,
   },
+  earthsearch: {
+    proxyBase: '/api/proxy/earthsearch',
+    origin: 'https://earth-search.aws.element84.com',
+    stripPrefix: '/v1',
+    label: 'catalogue Sentinel-2 Earth Search',
+    preferProxy: false,
+  },
   panoramax: {
     proxyBase: '/api/proxy/panoramax',
     origin: 'https://api.panoramax.xyz',

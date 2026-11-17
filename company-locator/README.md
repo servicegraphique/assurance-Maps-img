@@ -682,3 +682,9 @@ et de rue en temps réel ne sont pas fournies par ces services.
 
 Le serveur local relaie Open-Meteo sur `/api/weather` avec des coordonnées
 validées ; en hébergement statique, l'appel au service se fait directement.
+
+#### Images datées dans la comparaison météo
+
+Le catalogue ouvert [Earth Search](https://earth-search.aws.element84.com/v1) fournit des scènes Copernicus Sentinel‑2 L2A pour le point sélectionné : J‑14 à J‑7 et les sept derniers jours, en dates UTC. L'aperçu couvre toute la scène régionale, sans centrage sur le bâtiment ; les bandes natives à 10 m ne permettent pas d'inspecter une toiture. La date affichée est celle de l'acquisition, et le pourcentage de nuages concerne toute la scène. Une scène peut être absente, nuageuse ou indisponible, et n'est pas une vue en direct.
+
+La recherche Panoramax interroge séparément les périodes historiques et le jour UTC ; elle affiche la date, la distance et la licence de chaque photographie. Une photo récente parmi les résultats peut être proposée hors période, explicitement étiquetée. Le catalogue étant limité et dépendant des contributions, ni la couverture ni une photographie récente ne sont garanties. Les requêtes sont limitées à 90 résultats bruts par période et filtrées par distance ; une absence de résultat ne prouve pas l'absence totale d'images. Les services ont des états d'erreur indépendants.

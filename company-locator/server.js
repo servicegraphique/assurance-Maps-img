@@ -334,6 +334,7 @@ async function handleMapillary(request, response, url) {
 const PUBLIC_PROXIES = {
   '/api/proxy/entreprises': { target: 'https://recherche-entreprises.api.gouv.fr', paths: ['/search'] },
   '/api/proxy/geocodage': { target: 'https://data.geopf.fr/geocodage', paths: ['/search', '/reverse'] },
+  '/api/proxy/earthsearch': { target: 'https://earth-search.aws.element84.com/v1', paths: ['/search'] },
   '/api/proxy/panoramax': { target: 'https://api.panoramax.xyz/api', paths: ['/search'] },
 };
 
