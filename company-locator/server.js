@@ -37,6 +37,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { siteUrl, SITE_SOURCES } from './js/site-data.js';
 import { resolveMapillaryToken, mapillaryStatusPayload, MAPILLARY_DASHBOARD_URL } from './js/mapillary-config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -423,6 +424,23 @@ function handleStreetView(request, response, url) {
   return undefined;
 }
 
+// Relais borné : le client ne fournit ni URL ni requête Overpass arbitraire.
+async function handleSite(request, response, url) {
+  const source = url.searchParams.get('source');
+  const latText = url.searchParams.get('lat'), lonText = url.searchParams.get('lon');
+  const lat = Number(latText), lon = Number(lonText);
+  if (!SITE_SOURCES.includes(source) || !latText || !lonText || !Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 85 || Math.abs(lon) > 180 || [...url.searchParams.keys()].some(k => !['source', 'lat', 'lon'].includes(k))) return sendJson(response, 400, { error: 'Paramètres invalides' });
+  if (publicRateLimited()) return sendJson(response, 429, { error: 'Trop de requêtes' });
+  try {
+    const upstream = await fetch(siteUrl(source, lat, lon), { signal: AbortSignal.timeout(20000), headers: { Accept: 'application/json', 'User-Agent': 'CompanyLocatorFrance/1.0' }, redirect: 'error' });
+    if (!upstream.ok) return sendJson(response, upstream.status, { error: 'Service distant indisponible' });
+    const data = await upstream.json();
+    return sendJson(response, 200, data);
+  } catch (error) {
+    return sendJson(response, 502, { error: 'Service distant inaccessible' });
+  }
+}
+
 async function handlePublicProxy(request, response, url) {
   const prefix = Object.keys(PUBLIC_PROXIES).find((key) => url.pathname.startsWith(key));
   if (!prefix) return sendJson(response, 404, { error: 'Relais inconnu' });
@@ -544,6 +562,8 @@ const server = http.createServer(async (request, response) => {
   if (request.method !== 'GET' && request.method !== 'HEAD') {
     return sendJson(response, 405, { error: 'Méthode non autorisée' });
   }
+
+  if (url.pathname === '/api/site') return handleSite(request, response, url);
 
   if (url.pathname === '/api/health') {
     return sendJson(response, 200, {

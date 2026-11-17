@@ -21,6 +21,7 @@ import * as streetview from './streetview.js';
 import { detectProxy, transportLabel, proxyState } from './transport.js';
 import * as exporter from './export.js';
 import * as ui from './ui.js';
+import { createSiteMap } from './site-map.js';
 import {
   settings, history, favorites, userContacts, storageInfo, purgeCache, purgeUserData,
 } from './storage.js';
@@ -46,6 +47,7 @@ const state = {
   googleStreetView: { configured: false, checked: false, message: '' },
   map: null,
   aerial: null,
+  siteMap: null,
   searchAbort: null,
   historyTab: 'searches',
   mapillaryAccess: { mode: 'none', detail: '' },
@@ -103,6 +105,7 @@ function setView(view) {
     button.setAttribute('aria-selected', String(active));
   });
   if (view === 'map') setTimeout(() => state.map?.invalidate(), 80);
+  if (view === 'detail' && state.fiche?.activeTab === 'toiture') setTimeout(() => state.siteMap?.invalidate(), 80);
   if (view === 'detail' && state.fiche?.activeTab === 'images') setTimeout(() => state.aerial?.invalidate(), 80);
 }
 
@@ -301,6 +304,7 @@ async function selectEtablissement(siret, options = {}) {
 
   state.selectedSiret = siret;
   destroyAerial();
+  destroySiteMap();
   const current = settings.get();
   state.fiche = {
     row,
@@ -347,7 +351,7 @@ async function selectEtablissement(siret, options = {}) {
   }
 
   if (state.fiche.activeTab === 'images') showImagesTab();
-
+  if (state.fiche.position && state.fiche.activeTab === 'toiture') showSiteTab();
   if (!state.fiche.position) await computePosition(row);
 }
 
@@ -375,6 +379,18 @@ async function computePosition(row) {
     dom['btn-copy-gps'].disabled = true;
   }
   if (state.fiche.activeTab === 'images') showImagesTab();
+  if (state.fiche.activeTab === 'toiture') showSiteTab();
+}
+
+function destroySiteMap() {
+  state.siteMap?.destroy();
+  state.siteMap = null;
+}
+
+function showSiteTab() {
+  if (!state.fiche || state.fiche.positionLoading) return;
+  if (!state.siteMap && ui.detailRefs.siteHost) state.siteMap = createSiteMap(ui.detailRefs.siteHost, state.fiche.position);
+  setTimeout(() => state.siteMap?.invalidate(), 80);
 }
 
 function destroyAerial() {
@@ -516,7 +532,6 @@ async function loadStreetPhotos() {
 function detailHandlers() {
   return {
     onToggleFavorite: () => {
-      destroyAerial();
       const siret = state.fiche.row.etablissement.siret;
       if (favorites.has(siret)) {
         favorites.remove(siret);
@@ -531,9 +546,11 @@ function detailHandlers() {
         state.fiche.isFavorite = true;
         ui.toast('Fiche enregistrée sur cet appareil.', 'success');
       }
-      ui.renderDetail(dom['detail-card'], state.fiche, detailHandlers());
-      ui.setActiveTab(dom['detail-card'], state.fiche.activeTab);
-      refreshCurrentTab();
+      const button = dom['detail-card'].querySelector('.detail-head .icon-btn');
+      button.classList.toggle('is-active', state.fiche.isFavorite);
+      const label = state.fiche.isFavorite ? 'Retirer des fiches enregistrées' : 'Enregistrer cette fiche';
+      button.title = label;
+      button.setAttribute('aria-label', label);
     },
     onTabChange: (tab) => {
       state.fiche.activeTab = tab;
@@ -601,6 +618,7 @@ function detailHandlers() {
 function refreshCurrentTab() {
   const tab = state.fiche?.activeTab;
   if (tab === 'images') showImagesTab();
+  if (tab === 'toiture') showSiteTab();
 }
 
 /* ==================================================================== */
@@ -965,6 +983,7 @@ function wireEvents() {
       state.fiche = null;
       state.positions.clear();
       destroyAerial();
+      destroySiteMap();
       dom['detail-card'].hidden = true;
       dom['results-list'].replaceChildren();
       dom['results-list'].append(ui.emptyState({

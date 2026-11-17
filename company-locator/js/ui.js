@@ -262,7 +262,9 @@ export function renderDetail(container, fiche, handlers) {
     container.append(panel);
   });
 
-  panels.toiture.append(mediaEmpty({ iconName: 'satellite', title: 'Voir toiture ou Parking', message: 'Fonctionnalité à venir.' }));
+  const siteHost = el('div', { id: 'site-host' });
+  panels.toiture.append(siteHost);
+  detailRefs.siteHost = siteHost;
   panels.meteo.append(mediaEmpty({ iconName: 'map', title: 'Météo et Vue actuel du zone', message: 'Fonctionnalité à venir.' }));
 
   detailRefs.panels = panels;
