@@ -295,19 +295,9 @@ export function renderDetail(container, fiche, handlers) {
   detailRefs.streetHost = streetHost;
   detailRefs.streetActions = street.querySelector('#street-actions');
 
-  const complementary = el('div', { class: 'media-block' });
-  complementary.append(el('div', { class: 'media-head' }, [
-    el('h3', {}, [icon('image'), 'C. Photographies complémentaires']),
-    el('span', { class: 'media-note', text: 'Uniquement des images dont la source est identifiée.' }),
-  ]));
-  const complementaryHost = el('div', { id: 'complementary-host' });
-  complementary.append(complementaryHost);
-  images.append(complementary);
-  detailRefs.complementaryHost = complementaryHost;
-
   const immersive = el('div', { class: 'media-block' });
   immersive.append(el('div', { class: 'media-head' }, [
-    el('h3', {}, [icon('expand'), 'D. Vue immersive — Street View 360°']),
+    el('h3', {}, [icon('expand'), 'C. Vue immersive — Street View 360°']),
     el('span', { class: 'media-note', text: 'Chargée uniquement à votre demande.' }),
   ]));
   const streetviewHost = el('div', { id: 'streetview-host' });
@@ -447,7 +437,7 @@ export function renderStreetPhotos({ loading, photos, sources, radiusM, error },
 
   if (sources?.length) {
     const list = el('div', { class: 'coverage-legend', style: 'margin-bottom:12px' });
-    sources.forEach((source) => {
+    sources.filter((source) => source.status === 'ok' || source.status === 'error').forEach((source) => {
       const cls = source.status === 'ok' ? 'badge-success' : (source.status === 'error' ? 'badge-danger' : 'badge-neutral');
       list.append(el('span', { class: `badge ${cls}`, title: source.message, text: `${source.name} : ${source.count}` }));
     });
@@ -463,11 +453,11 @@ export function renderStreetPhotos({ loading, photos, sources, radiusM, error },
     host.append(mediaEmpty({
       iconName: 'camera',
       title: 'Aucune photographie de rue disponible',
-      message: `Aucun contributeur n'a publié d'image dans un rayon de ${radiusM} m. Augmentez le rayon ou consultez la vue aérienne. Aucune image générique n'est affichée à la place.`,
+      message: `Aucune photographie n'a pu être affichée dans un rayon de ${radiusM} m. Augmentez le rayon ou consultez la vue aérienne.`,
     }));
   }
 
-  (sources || []).filter((source) => source.status !== 'ok').forEach((source) => {
+  (sources || []).filter((source) => source.status === 'error').forEach((source) => {
     host.append(el('div', { class: `notice notice-${source.status === 'error' ? 'error' : 'info'}`, style: 'margin:10px 0 0' }, [
       icon(source.status === 'error' ? 'alert' : 'info'),
       el('span', { text: `${source.name} — ${source.message}` }),
@@ -630,58 +620,6 @@ export function renderStreetView({ providers = [], selected = null, loaded = fal
   caption.append(el('span', { text: `Licence : ${truncate(photo?.licence || selected.licence, 60)}` }));
   host.append(caption);
   host.append(el('p', { class: 'muted-xs sv-detail', text: immersion.detail }));
-}
-
-export function renderComplementaryPhotos(siret, photos, handlers) {
-  const host = detailRefs.complementaryHost;
-  if (!host) return;
-  clear(host);
-
-  if (photos.length) {
-    const grid = el('div', { class: 'photo-grid' });
-    photos.forEach((photo) => grid.append(photoCard(photo, {
-      onOpen: handlers.onOpenPhoto,
-      onRemove: (item) => handlers.onRemovePhoto?.(item),
-    })));
-    host.append(grid);
-  } else {
-    host.append(mediaEmpty({
-      iconName: 'image',
-      title: 'Aucune photographie officielle vérifiée',
-      message: 'Il n\'existe pas d\'API gratuite permettant d\'associer de façon fiable une photographie officielle à un SIRET. '
-        + 'Aucune image n\'est donc affichée par défaut. Si vous disposez d\'une photographie dont vous pouvez garantir la provenance '
-        + '(site officiel de l\'entreprise, service public, votre propre cliché), ajoutez-la ci-dessous : elle sera conservée uniquement sur cet appareil.',
-    }));
-  }
-
-  const form = el('form', {
-    class: 'inline-form',
-    onsubmit: (event) => {
-      event.preventDefault();
-      const data = new FormData(event.target);
-      handlers.onAddPhoto?.({
-        url: String(data.get('url') || '').trim(),
-        source: String(data.get('source') || '').trim(),
-        licence: String(data.get('licence') || '').trim(),
-        date: String(data.get('date') || ''),
-        note: String(data.get('note') || '').trim(),
-      });
-      event.target.reset();
-    },
-  });
-  const field = (name, label, placeholder, type = 'text', wide = false, required = false) => el('div', { class: `field${wide ? ' field-wide' : ''}` }, [
-    el('label', { for: `photo-${name}`, text: label }),
-    el('input', { type, id: `photo-${name}`, name, placeholder, required }),
-  ]);
-  form.append(field('url', 'URL de la photographie *', 'https://…/photo.jpg', 'url', true, true));
-  form.append(field('source', 'Source / auteur *', 'Site officiel de l’entreprise, mairie, auteur…', 'text', false, true));
-  form.append(field('licence', 'Licence', 'CC BY 4.0, domaine public, tous droits réservés…'));
-  form.append(field('date', 'Date de prise de vue', '', 'date'));
-  form.append(field('note', 'Note', 'Façade nord, entrée principale…'));
-  form.append(el('div', { class: 'field field-wide' }, [
-    el('button', { type: 'submit', class: 'btn btn-sm btn-outline' }, [icon('plus'), 'Ajouter cette photographie vérifiée']),
-  ]));
-  host.append(form);
 }
 
 /* --------------------------- 4d. Sources ---------------------------- */

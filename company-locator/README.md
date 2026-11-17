@@ -59,7 +59,7 @@ Application web locale, en HTML5 / CSS3 / JavaScript Vanilla + Leaflet. Aucun fr
   (`+33`, `0033`, espaces, points), rendus cliquables (`tel:`, `mailto:`), copiables,
   modifiables et supprimables ; une incohérence (mobile dans le champ « fixe »,
   e-mail mal formé) est refusée avec un message explicite.
-- **Images** : vue aérienne IGN, photographies de rue, photographies complémentaires sourcées.
+- **Images** : vue aérienne IGN et photographies de rue.
 - **Établissements** : liste des autres sites de la même société, filtrable par code postal.
 - **Sources** : tableau donnée → source → licence, plus l'URL exacte de la requête API utilisée
   (« Saisie manuelle (Company Locator) » pour les coordonnées de contact).
@@ -445,17 +445,9 @@ Le fond de plan (OSM ou Plan IGN) n'est, lui, **jamais** présenté comme une ph
 - Chaque vignette affiche : **fournisseur, date de prise de vue, auteur, licence, distance au point, lien vers la source**, et un badge `360°` pour les panoramas.
 - Agrandissement en lightbox navigable (flèches clavier, Échap).
 - Rayon réglable : 50 / 100 / 200 / 500 m.
-- Si aucune image : message explicite par fournisseur, avec le rayon testé. **Aucune image générique.**
+- Si aucune image : message général avec le rayon testé. **Aucune image générique.**
 
 > Les photographies de rue montrent l'**environnement de l'adresse**. Elles ne prouvent pas l'identité de l'occupant actuel du bâtiment. Ce rappel est affiché dans l'interface.
-
-### C. Photographies complémentaires
-
-Il n'existe **aucune API gratuite** permettant d'associer de façon fiable une photographie « officielle » à un SIRET. Plutôt que d'inventer, l'application :
-
-1. affiche un message explicite : *« Aucune photographie officielle vérifiée »* ;
-2. permet d'ajouter manuellement une photographie **dont vous garantissez la provenance** — URL **et** source sont obligatoires, la licence et la date sont recommandées ;
-3. conserve ces photos uniquement sur votre appareil, avec leur attribution.
 
 ---
 
@@ -464,7 +456,7 @@ Il n'existe **aucune API gratuite** permettant d'associer de façon fiable une p
 Deux accès à la vue de rue :
 
 1. le **4e bouton « Street View » de la carte**, qui affiche directement l'image de rue de l'établissement sélectionné (voir [section 1](#1-fonctionnalités)) ;
-2. l'onglet **Images**, section **D. Vue immersive**, qui ouvre un véritable viewer 360° navigable : regarder autour de soi et se déplacer le long de la rue.
+2. l'onglet **Images**, section **C. Vue immersive**, qui ouvre un véritable viewer 360° navigable : regarder autour de soi et se déplacer le long de la rue.
 
 ### Trois sources, deux sans aucune clé
 
@@ -534,7 +526,6 @@ Copies en un clic : **adresse complète**, **coordonnées GPS**, **SIRET**, **SI
 - **Aucun serveur tiers** autre que les API publiques listées. Aucun analytics, aucun traceur, aucune police externe, aucun CDN.
 - **Historique désactivé par défaut.** Aucun enregistrement tant que vous ne l'avez pas activé explicitement dans les paramètres.
 - Les **fiches enregistrées** résultent toujours d'un clic sur l'étoile.
-- Les **photos complémentaires** ne sont ajoutées que par vous.
 - Tout est stocké dans le `localStorage` du navigateur, sous le préfixe `clf:`.
 - Purge disponible : *Vider le cache*, *Tout effacer*, suppression par entrée d'historique.
 - Si le `localStorage` est indisponible (navigation privée), un magasin mémoire prend le relais et l'interface le signale.
@@ -648,8 +639,9 @@ point, cliquer sur « Choisir un point sur la carte », puis sur la carte ; le
 bouton GPS revient à l'établissement. Cliquer sur un polygone pour afficher ses
 mesures et, pour une parcelle, sa contenance cadastrale si fournie.
 
-Les boutons sur la carte permettent de dessiner, éditer ou supprimer un polygone
-manuel. « Corriger une copie » crée une copie modifiable du polygone sélectionné
+Cliquez sur « Dessiner une surface », posez au moins trois points puis cliquez
+sur le premier point pour fermer le contour. Sélectionnez ensuite le dessin et
+utilisez « Modifier le dessin » ou « Supprimer le dessin ». « Corriger une copie » crée une copie modifiable du polygone sélectionné
 sans modifier la source ; les dessins ne sont pas enregistrés et disparaissent
 lors d'un changement de fiche ou d'un rechargement. La surface au sol, le
 périmètre (trous compris) et le rectangle englobant orienté sont des estimations
