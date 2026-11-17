@@ -333,3 +333,13 @@ test('Relais de mesure : refuse les paramètres arbitraires avant tout appel ext
     ]) assert.equal((await getJson(server.port, `/api/site${query}`)).status, 400);
   } finally { await stop(server.child); }
 });
+
+test('Relais météo : coordonnées et paramètres arbitraires refusés', async () => {
+  const server = startServer();
+  try {
+    await server.ready;
+    for (const query of ['?lat=91&lon=2', '?lat=&lon=2', '?lat=48&lon=abc', '?lat=48&lon=2&url=https://example.com']) {
+      assert.equal((await getJson(server.port, `/api/weather${query}`)).status, 400);
+    }
+  } finally { await stop(server.child); }
+});

@@ -109,6 +109,11 @@ async function fakeFetch(input) {
     }
   }
 
+  if (url.startsWith('/api/weather')) {
+    const time = Array.from({ length: 15 }, (_, i) => `2025-01-${String(i + 1).padStart(2, '0')}`);
+    return jsonResponse({ timezone: 'Europe/Paris', current: { time: '2025-01-15T12:00', temperature_2m: 8, weather_code: 3 }, daily: { time, weather_code: time.map(() => 0), temperature_2m_min: time.map(() => 2), temperature_2m_max: time.map(() => 9), precipitation_sum: time.map(() => 0), wind_speed_10m_max: time.map(() => 10) } });
+  }
+
   if (url.startsWith('/api/health')) {
     return jsonResponse({ ok: true, app: 'Company Locator France', version: '1.0.0', mapillaryConfigured: true });
   }
@@ -256,14 +261,18 @@ check('La fiche présente les nouveaux onglets et aucune ancienne action', () =>
   assert.match(window.location.hash, /^#\/etablissement\/\d{14}$/);
 });
 
-const callsBeforeNewTabs = networkCalls.length;
 click($('#detail-card [data-tab="meteo"]'));
-check('Le nouvel onglet météo est sélectionnable sans charger de données', () => {
-  assert.equal($('#detail-card [data-tab="meteo"]').getAttribute('aria-selected'), 'true');
-  assert.equal($('#detail-card [data-panel="meteo"]').hidden, false);
-  assert.equal($('#detail-card [data-panel="toiture"]').hidden, true);
-  assert.match($('#detail-card [data-panel="meteo"]').textContent, /Fonctionnalité à venir/);
-  assert.equal(networkCalls.length, callsBeforeNewTabs);
+await waitFor(() => $('#weather-host').textContent.includes('2025-01-08'), 'météo historique');
+check('La météo compare sept jours avant aux conditions actuelles sans prétendre afficher une image en direct', () => {
+  const panel = $('#detail-card [data-panel="meteo"]');
+  assert.equal(panel.hidden, false);
+  assert.match(panel.textContent, /2025-01-08/);
+  assert.match(panel.textContent, /2025-01-15T12:00/);
+  assert.match(panel.textContent, /Image aérienne en direct : indisponible/);
+  assert.match(panel.textContent, /pas une vidéo en direct/);
+  const select = panel.querySelector('select');
+  select.value = '14'; select.dispatchEvent(new window.Event('change'));
+  assert.match(panel.textContent, /2025-01-01/);
 });
 click($('#detail-card [data-tab="sources"]'));
 check('Les sources restent accessibles', () => {

@@ -22,6 +22,7 @@ import { detectProxy, transportLabel, proxyState } from './transport.js';
 import * as exporter from './export.js';
 import * as ui from './ui.js';
 import { createSiteMap } from './site-map.js';
+import { createWeatherView } from './weather-view.js';
 import {
   settings, history, favorites, userContacts, storageInfo, purgeCache, purgeUserData,
 } from './storage.js';
@@ -48,6 +49,7 @@ const state = {
   map: null,
   aerial: null,
   siteMap: null,
+  weatherView: null,
   searchAbort: null,
   historyTab: 'searches',
   mapillaryAccess: { mode: 'none', detail: '' },
@@ -105,6 +107,7 @@ function setView(view) {
     button.setAttribute('aria-selected', String(active));
   });
   if (view === 'map') setTimeout(() => state.map?.invalidate(), 80);
+  if (view === 'detail' && state.fiche?.activeTab === 'meteo') setTimeout(() => state.weatherView?.invalidate(), 80);
   if (view === 'detail' && state.fiche?.activeTab === 'toiture') setTimeout(() => state.siteMap?.invalidate(), 80);
   if (view === 'detail' && state.fiche?.activeTab === 'images') setTimeout(() => state.aerial?.invalidate(), 80);
 }
@@ -305,6 +308,7 @@ async function selectEtablissement(siret, options = {}) {
   state.selectedSiret = siret;
   destroyAerial();
   destroySiteMap();
+  destroyWeatherView();
   const current = settings.get();
   state.fiche = {
     row,
@@ -380,6 +384,23 @@ async function computePosition(row) {
   if (state.fiche.activeTab === 'images') showImagesTab();
   if (state.siteMap && state.fiche.position) state.siteMap.setPosition?.(state.fiche.position);
   if (state.fiche.activeTab === 'toiture') showSiteTab();
+  if (state.fiche.activeTab === 'meteo') showWeatherTab();
+}
+
+function destroyWeatherView() {
+  state.weatherView?.destroy();
+  state.weatherView = null;
+}
+
+function showWeatherTab() {
+  if (!state.fiche || !ui.detailRefs.weatherHost) return;
+  const host = ui.detailRefs.weatherHost;
+  if (!state.fiche.position) {
+    host.textContent = state.fiche.positionLoading ? 'Recherche des coordonnées en cours…' : 'Coordonnées indisponibles : impossible de consulter la météo et les images pour cette fiche.';
+    return;
+  }
+  if (!state.weatherView) state.weatherView = createWeatherView(host, state.fiche.position, settings.get());
+  setTimeout(() => state.weatherView?.invalidate(), 80);
 }
 
 function destroySiteMap() {
@@ -604,6 +625,7 @@ function refreshCurrentTab() {
   const tab = state.fiche?.activeTab;
   if (tab === 'images') showImagesTab();
   if (tab === 'toiture') showSiteTab();
+  if (tab === 'meteo') showWeatherTab();
 }
 
 /* ==================================================================== */
@@ -969,6 +991,7 @@ function wireEvents() {
       state.positions.clear();
       destroyAerial();
       destroySiteMap();
+      destroyWeatherView();
       dom['detail-card'].hidden = true;
       dom['results-list'].replaceChildren();
       dom['results-list'].append(ui.emptyState({
