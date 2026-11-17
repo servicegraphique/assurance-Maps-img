@@ -319,3 +319,17 @@ test('--set-mapillary-token : un jeton invalide est refusé et n’écrit rien',
   assert.equal(noArg.code, 1);
   assert.match(noArg.output, /Usage/);
 });
+
+test('Relais de mesure : refuse les paramètres arbitraires avant tout appel externe', async () => {
+  const server = startServer();
+  try {
+    await server.ready;
+    for (const query of [
+      '?source=batiments&lat=abc&lon=2',
+      '?source=batiments&lat=91&lon=2',
+      '?source=unknown&lat=48&lon=2',
+      '?source=parkings&lat=48&lon=2&url=https://example.com',
+      '?source=parkings&lat=&lon=2',
+    ]) assert.equal((await getJson(server.port, `/api/site${query}`)).status, 400);
+  } finally { await stop(server.child); }
+});

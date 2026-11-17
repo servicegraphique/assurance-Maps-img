@@ -637,3 +637,34 @@ Le panneau **état des API** (pastille dans l'en-tête) teste réellement les ci
 Code de l'application : **MIT**.
 Leaflet 1.9.4 : **BSD-2-Clause** (voir `vendor/leaflet/LICENSE`).
 Données et images : licences de leurs producteurs respectifs (voir [section 5](#5-api-utilisées-limites-et-licences) et l'onglet *Sources* de chaque fiche). Les attributions sont affichées en permanence sur les cartes et sous chaque photographie.
+
+### Mesure de toiture, parking et parcelle
+
+Dans « Voir toiture ou Parking », la carte charge au GPS géocodé les polygones
+BD TOPO (bâtiments et équipements de transport de nature parking), OpenStreetMap
+(parkings via Overpass) et la parcelle API Carto au point. Chaque service a son
+propre état : une erreur ou une absence ne bloque pas les autres. Pour un autre
+point, cliquer sur « Choisir un point sur la carte », puis sur la carte ; le
+bouton GPS revient à l'établissement. Cliquer sur un polygone pour afficher ses
+mesures et, pour une parcelle, sa contenance cadastrale si fournie.
+
+Les boutons sur la carte permettent de dessiner, éditer ou supprimer un polygone
+manuel. « Corriger une copie » crée une copie modifiable du polygone sélectionné
+sans modifier la source ; les dessins ne sont pas enregistrés et disparaissent
+lors d'un changement de fiche ou d'un rechargement. La surface au sol, le
+périmètre (trous compris) et le rectangle englobant orienté sont des estimations
+calculées avec Turf ; les dimensions du rectangle ne sont pas nécessairement
+celles des côtés. La toiture est estimée avec une pente uniforme réglable
+(30° par défaut), sans connaître la forme du toit. La contenance cadastrale,
+quand elle est fournie, est distincte de la surface calculée. Aucune mesure ne
+remplace un relevé de géomètre ; les objets proches ne prouvent pas l'occupation
+par l'entreprise, et les parkings peuvent manquer ou être présents dans les
+sources en double.
+
+Utiliser `node server.js` pour le relais de même origine, notamment si CORS
+bloque une API ; le relais ne permet que des requêtes prédéfinies par point et
+applique une limite de débit. Un cache mémoire de cinq minutes évite de répéter
+les mêmes appels. En hébergement statique, les requêtes directes dépendent du
+CORS de chaque service. Les flux WFS sont limités à 500 objets ; un message
+signale la limite atteinte. Turf.js, osmtogeojson et Leaflet-Geoman sont servis
+localement avec leurs licences dans `vendor/`.

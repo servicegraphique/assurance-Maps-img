@@ -247,7 +247,7 @@ check('La fiche présente les nouveaux onglets et aucune ancienne action', () =>
     'Voir toiture ou Parking', 'Images', 'Météo et Vue actuel du zone', 'Sources',
   ]);
   assert.equal(tabs[0].getAttribute('aria-selected'), 'true');
-  assert.match($('#detail-card [data-panel="toiture"]').textContent, /Fonctionnalité à venir/);
+  assert.ok($('#detail-card [data-panel="toiture"] #site-host'));
   assert.equal($('#detail-card .detail-actions'), null);
   assert.equal($('#contacts-section'), null);
   assert.equal($('#gps-section'), null);
@@ -483,7 +483,7 @@ check('La fiche peut être enregistrée localement', () => {
 });
 check('Le nouvel onglet reste actif après le réaffichage de la fiche', () => {
   assert.equal($('#detail-card [data-tab="toiture"]').getAttribute('aria-selected'), 'true');
-  assert.match($('#detail-card [data-panel="toiture"]').textContent, /Fonctionnalité à venir/);
+  assert.ok($('#detail-card [data-panel="toiture"] #site-host'));
 });
 
 /* ---------------------------- Paramètres --------------------------- */

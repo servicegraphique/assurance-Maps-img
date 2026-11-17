@@ -247,3 +247,12 @@ body.has-fullscreen-map { overflow: hidden; }
 .legend-swatch.siege { background: var(--c-accent); }
 .legend-swatch.closed { background: #94a3b8; }
 .legend-swatch.selected { background: #ea580c; }
+
+/* Carte de mesure des objets vectoriels */
+.site-map { height: 440px; width: 100%; margin: 12px 0; border: 1px solid var(--c-border); border-radius: var(--r-md); background: #e8eef5; z-index: 0; }
+.site-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
+.site-slope { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; }
+.site-slope input { width: 70px; }
+.site-status { display: flex; flex-wrap: wrap; gap: 4px 16px; color: var(--c-text-2); font-size: 12px; margin: 8px 0; }
+.site-details { padding: 12px; border: 1px solid var(--c-border); border-radius: var(--r-md); margin: 12px 0; }
+.site-details p { margin-top: 4px; }
