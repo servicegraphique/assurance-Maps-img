@@ -77,7 +77,7 @@ function normalizePanoramaxFeature(feature, origin) {
  * Recherche des photographies autour d'un point.
  * `place_position` attend LONGITUDE puis LATITUDE (ordre STAC).
  */
-export async function fetchPanoramax({ lat, lon, radiusM = 100, limit = 12, signal = null }) {
+export async function fetchPanoramax({ lat, lon, radiusM = 100, limit = 12, signal = null, sortByRecent = false, datetime = null }) {
   if (!PCFG.enabled) return { photos: [], skipped: 'Fournisseur désactivé dans la configuration.' };
 
   const primary = new URLSearchParams({
@@ -93,14 +93,19 @@ export async function fetchPanoramax({ lat, lon, radiusM = 100, limit = 12, sign
     }));
   };
 
+  const bbox = bboxAround(lat, lon, radiusM).map((n) => n.toFixed(6)).join(',');
+  const bboxParams = new URLSearchParams({ bbox, limit: String(Math.min(100, Math.max(1, limit * 3))) });
+  if (sortByRecent) bboxParams.set('sortby', '-ts');
+  if (datetime) bboxParams.set('datetime', datetime);
   let raw;
   try {
-    raw = await request(primary);
+    raw = await request(sortByRecent ? bboxParams : primary);
+    // Certaines instances renvoient une liste vide pour place_distance malgré des points en bbox.
+    if (!sortByRecent && Array.isArray(raw?.features) && !raw.features.length) raw = await request(bboxParams);
   } catch (error) {
     // Certaines instances n'acceptent pas place_position : repli sur bbox.
     if (error instanceof AppError && error.code === ERR.HTTP_CLIENT) {
-      const bbox = bboxAround(lat, lon, radiusM).map((n) => n.toFixed(6)).join(',');
-      raw = await request(new URLSearchParams({ bbox, limit: String(Math.min(100, limit * 3)) }));
+      raw = await request(bboxParams);
     } else {
       throw error;
     }
@@ -111,8 +116,9 @@ export async function fetchPanoramax({ lat, lon, radiusM = 100, limit = 12, sign
     .map((feature) => normalizePanoramaxFeature(feature, { lat, lon }))
     .filter((photo) => photo && photo.thumbUrl)
     .filter((photo) => photo.distanceM == null || photo.distanceM <= radiusM * 1.5)
-    .sort((a, b) => (a.distanceM ?? 1e9) - (b.distanceM ?? 1e9)
-      || new Date(b.capturedAt || 0) - new Date(a.capturedAt || 0));
+    .sort((a, b) => sortByRecent
+      ? new Date(b.capturedAt || 0) - new Date(a.capturedAt || 0) || (a.distanceM ?? 1e9) - (b.distanceM ?? 1e9)
+      : (a.distanceM ?? 1e9) - (b.distanceM ?? 1e9) || new Date(b.capturedAt || 0) - new Date(a.capturedAt || 0));
 
   return { photos: photos.slice(0, limit), total: features.length };
 }

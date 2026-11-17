@@ -109,6 +109,12 @@ async function fakeFetch(input) {
     }
   }
 
+  if (url.startsWith('https://earth-search.aws.element84.com/v1/search') || url.startsWith('/api/proxy/earthsearch/search')) {
+    const params = new URL(url, 'http://localhost:8080').searchParams;
+    const date = params.get('datetime').split('/')[0];
+    return jsonResponse({ features: [{ properties: { datetime: date, 'eo:cloud_cover': 15 }, assets: { thumbnail: { href: 'https://sentinel-cogs.s3.us-west-2.amazonaws.com/test/preview.jpg' } }, links: [{ rel: 'self', href: 'https://earth-search.aws.element84.com/v1/collections/sentinel-2-l2a/items/test' }] }] });
+  }
+
   if (url.startsWith('/api/weather')) {
     const time = Array.from({ length: 15 }, (_, i) => `2025-01-${String(i + 1).padStart(2, '0')}`);
     return jsonResponse({ timezone: 'Europe/Paris', current: { time: '2025-01-15T12:00', temperature_2m: 8, weather_code: 3 }, daily: { time, weather_code: time.map(() => 0), temperature_2m_min: time.map(() => 2), temperature_2m_max: time.map(() => 9), precipitation_sum: time.map(() => 0), wind_speed_10m_max: time.map(() => 10) } });
@@ -262,13 +268,16 @@ check('La fiche présente les nouveaux onglets et aucune ancienne action', () =>
 });
 
 click($('#detail-card [data-tab="meteo"]'));
-await waitFor(() => $('#weather-host').textContent.includes('2025-01-08'), 'météo historique');
+await waitFor(() => $('#weather-host').textContent.includes('2025-01-08') && $('#weather-host').querySelectorAll('.satellite-preview').length === 2 && $('#weather-host').textContent.includes('hors période, pas une vue actuelle'), 'météo et satellite');
 check('La météo compare sept jours avant aux conditions actuelles sans prétendre afficher une image en direct', () => {
   const panel = $('#detail-card [data-panel="meteo"]');
   assert.equal(panel.hidden, false);
   assert.match(panel.textContent, /2025-01-08/);
   assert.match(panel.textContent, /2025-01-15T12:00/);
-  assert.match(panel.textContent, /Image aérienne en direct : indisponible/);
+  assert.match(panel.textContent, /Satellite Sentinel‑2/);
+  assert.equal(panel.querySelectorAll('.satellite-preview').length, 2);
+  assert.match(panel.textContent, /insuffisante pour identifier une toiture/);
+  assert.match(panel.textContent, /hors période, pas une vue actuelle/);
   assert.match(panel.textContent, /pas une vidéo en direct/);
   const select = panel.querySelector('select');
   select.value = '14'; select.dispatchEvent(new window.Event('change'));
@@ -591,7 +600,7 @@ check('Aucune erreur JavaScript pendant le parcours complet', () => {
 });
 check('Aucun appel à un service payant ou non déclaré', () => {
   const hosts = new Set(networkCalls.filter((url) => url.startsWith('http')).map((url) => new URL(url).host));
-  const allowed = new Set(['recherche-entreprises.api.gouv.fr', 'data.geopf.fr', 'api.panoramax.xyz']);
+  const allowed = new Set(['recherche-entreprises.api.gouv.fr', 'data.geopf.fr', 'api.panoramax.xyz', 'earth-search.aws.element84.com']);
   assert.deepEqual([...hosts].filter((host) => !allowed.has(host)), []);
 });
 check('Le serveur local est détecté et utilisé comme relais de même origine', () => {
