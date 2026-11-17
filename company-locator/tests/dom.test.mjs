@@ -299,10 +299,9 @@ check('Les photos de rue Panoramax et Mapillary sont affichées avec source et d
 check('Le panneau indique le rayon de recherche et la limite d\'interprétation', () => {
   assert.match($('#street-host').textContent, /rayon de 100 m/);
 });
-check('Aucune photo officielle n\'est inventée : message explicite + formulaire sourcé', () => {
-  const text = $('#complementary-host').textContent;
-  assert.match(text, /Aucune photographie officielle vérifiée/);
-  assert.match(text, /Source \/ auteur/);
+check('Les photographies complémentaires et leur formulaire ne sont plus affichés', () => {
+  assert.equal($('#complementary-host'), null);
+  assert.doesNotMatch($('#detail-card [data-panel="images"]').textContent, /Photographies complémentaires|Ajouter cette photographie vérifiée/);
 });
 
 /* ---------------------------- Lightbox ----------------------------- */
@@ -554,6 +553,23 @@ await waitFor(() => !$('#form-error').hidden, 'message d\'erreur de validation')
 check('Un code postal invalide est refusé avant tout appel réseau', () => {
   assert.match($('#form-error').textContent, /code postal français valide/);
   assert.equal($('#champ-cp').getAttribute('aria-invalid'), 'true');
+});
+
+/* Les messages de configuration et d'absence demandés ne sont plus visibles. */
+const ui = await import('../js/ui.js');
+ui.detailRefs.streetHost = document.createElement('div');
+ui.detailRefs.streetActions = document.createElement('div');
+ui.renderStreetPhotos({ loading: false, photos: [], radiusM: 200, sources: [
+  { name: 'Mapillary', status: 'unavailable', count: 0, message: 'Aucun fichier de configuration trouvé' },
+  { name: 'Panoramax', status: 'empty', count: 0, message: 'Aucune photographie géolocalisée dans un rayon de 200 m.' },
+  { name: 'Autre service', status: 'error', count: 0, message: 'Erreur réseau' },
+] }, {});
+check('Les messages demandés sont supprimés sans masquer une vraie erreur réseau', () => {
+  const host = ui.detailRefs.streetHost;
+  assert.doesNotMatch(host.textContent, /Aucun fichier de configuration trouvé|Aucune photographie géolocalisée/);
+  assert.doesNotMatch(host.innerHTML, /Aucun fichier de configuration trouvé|Aucune photographie géolocalisée/);
+  assert.match(host.textContent, /Erreur réseau/);
+  assert.match(host.textContent, /Aucune photographie de rue disponible/);
 });
 
 /* ------------------------------ Bilan ------------------------------ */

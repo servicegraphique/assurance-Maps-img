@@ -324,7 +324,6 @@ async function selectEtablissement(siret, options = {}) {
 
   ui.renderDetail(dom['detail-card'], state.fiche, detailHandlers());
   ui.setActiveTab(dom['detail-card'], state.fiche.activeTab);
-  ui.renderComplementaryPhotos(siret, images.getComplementaryPhotos(siret), detailHandlers());
 
   state.map?.select(siret, { position: state.fiche.position, pan: true, openPopup: !options.fromMap });
   dom['btn-copy-gps'].disabled = !state.fiche.position;
@@ -351,7 +350,7 @@ async function selectEtablissement(siret, options = {}) {
   }
 
   if (state.fiche.activeTab === 'images') showImagesTab();
-  if (state.fiche.position && state.fiche.activeTab === 'toiture') showSiteTab();
+  if (state.fiche.activeTab === 'toiture') showSiteTab();
   if (!state.fiche.position) await computePosition(row);
 }
 
@@ -379,6 +378,7 @@ async function computePosition(row) {
     dom['btn-copy-gps'].disabled = true;
   }
   if (state.fiche.activeTab === 'images') showImagesTab();
+  if (state.siteMap && state.fiche.position) state.siteMap.setPosition?.(state.fiche.position);
   if (state.fiche.activeTab === 'toiture') showSiteTab();
 }
 
@@ -388,7 +388,7 @@ function destroySiteMap() {
 }
 
 function showSiteTab() {
-  if (!state.fiche || state.fiche.positionLoading) return;
+  if (!state.fiche) return;
   if (!state.siteMap && ui.detailRefs.siteHost) state.siteMap = createSiteMap(ui.detailRefs.siteHost, state.fiche.position);
   setTimeout(() => state.siteMap?.invalidate(), 80);
 }
@@ -432,7 +432,6 @@ async function showImagesTab() {
   }
 
   // B. Photos de rue
-  ui.renderComplementaryPhotos(fiche.row.etablissement.siret, images.getComplementaryPhotos(fiche.row.etablissement.siret), detailHandlers());
   if (!fiche.position) {
     ui.renderStreetPhotos({ loading: false, photos: [], sources: [], radiusM: settings.get().streetRadiusM, error: 'Aucune coordonnée disponible : la recherche de photographies de rue est impossible.' }, detailHandlers());
     renderStreetViewSection();
@@ -593,23 +592,9 @@ function detailHandlers() {
       renderStreetViewSection();
     },
     onOpenPhoto: (photo) => {
-      const all = [...state.street.photos, ...images.getComplementaryPhotos(state.fiche.row.etablissement.siret)];
+      const all = state.street.photos;
       const index = all.findIndex((item) => item.id === photo.id);
       ui.openLightbox(all, Math.max(0, index));
-    },
-    onAddPhoto: (payload) => {
-      try {
-        images.addComplementaryPhoto(state.fiche.row.etablissement.siret, payload);
-        ui.toast('Photographie ajoutée avec sa source.', 'success');
-      } catch (error) {
-        ui.toast(toUserMessage(error), 'error');
-      }
-      ui.renderComplementaryPhotos(state.fiche.row.etablissement.siret, images.getComplementaryPhotos(state.fiche.row.etablissement.siret), detailHandlers());
-    },
-    onRemovePhoto: (photo) => {
-      images.removeComplementaryPhoto(state.fiche.row.etablissement.siret, photo.id);
-      ui.renderComplementaryPhotos(state.fiche.row.etablissement.siret, images.getComplementaryPhotos(state.fiche.row.etablissement.siret), detailHandlers());
-      ui.toast('Photographie retirée.', 'info');
     },
 
   };
