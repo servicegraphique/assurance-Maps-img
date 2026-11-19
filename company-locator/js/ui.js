@@ -1,1170 +1,314 @@
 /**
- * ui.js — Rendu de l'interface (DOM uniquement, aucune requête réseau).
- *
- * Responsabilité : construire et mettre à jour les vues (résultats, fiche,
- * images, paramètres, historique, toasts, modales, lightbox) à partir des
- * données fournies par app.js, et renvoyer les intentions utilisateur via
- * des callbacks. Toute donnée externe est injectée en textContent.
+ * ui.js — Rendu visuel des composants de la Fiche Entreprise CRM
+ * (icônes météo, jauge financière, histogramme électrique, commentaires, modales, notifications).
  */
 
-import config from './config.js';
-import {
-  el, icon, clear, escapeHtml, formatSiren, formatSiret, formatDateFr, formatDateTimeFr,
-  formatCoords, formatNumberFr, safeUrl, truncate,
-} from './utils.js';
-import { nafLabel, nafWithLabel } from './labels.js';
-import { precisionLabel } from './geocoding.js';
-import { ignTimeLink } from './map.js';
-import { frameAttributes, describeImmersion } from './streetview.js';
+import { escapeHtml, safeUrl } from './utils.js';
+import { formatIntFr, formatEuroFr, MONTH_LETTERS } from './enrichment.js';
 
 /* ==================================================================== */
-/* 1. Notifications                                                      */
+/* 1. Icônes météo SVG                                                   */
 /* ==================================================================== */
 
-export function toast(message, type = 'info', duration = 3800) {
-  const host = document.getElementById('toasts');
-  if (!host) return;
-  const icons = { success: 'check', error: 'alert', warning: 'alert', info: 'info' };
-  const node = el('div', { class: `toast toast-${type}`, role: 'status' }, [icon(icons[type] || 'info'), el('span', { text: message })]);
-  host.append(node);
-  setTimeout(() => {
-    node.style.opacity = '0';
-    node.style.transform = 'translateY(6px)';
-    setTimeout(() => node.remove(), 220);
-  }, duration);
-}
+export function weatherSvg(kind = 'partly-cloudy') {
+  switch (kind) {
+    case 'sunny':
+      return `<svg viewBox="0 0 60 50" width="54" height="45">
+        <circle cx="30" cy="25" r="11" fill="#f7b731"/>
+        <g stroke="#f7b731" stroke-width="2.6" stroke-linecap="round">
+          <line x1="30" y1="6" x2="30" y2="10"/><line x1="30" y1="40" x2="30" y2="44"/>
+          <line x1="11" y1="25" x2="15" y2="25"/><line x1="45" y1="25" x2="49" y2="25"/>
+          <line x1="16.5" y1="11.5" x2="19.5" y2="14.5"/><line x1="40.5" y1="35.5" x2="43.5" y2="38.5"/>
+          <line x1="43.5" y1="11.5" x2="40.5" y2="14.5"/><line x1="19.5" y1="35.5" x2="16.5" y2="38.5"/>
+        </g>
+      </svg>`;
 
-/* ==================================================================== */
-/* 2. Briques réutilisables                                              */
-/* ==================================================================== */
+    case 'clear-night':
+      return `<svg viewBox="0 0 60 50" width="54" height="45">
+        <path d="M36 10a15 15 0 1010 24A13 13 0 0136 10z" fill="#f59e0b"/>
+      </svg>`;
 
-export function statusBadge(etablissement) {
-  if (etablissement.etatAdministratif === 'A') return el('span', { class: 'badge badge-success', text: 'Actif' });
-  if (etablissement.etatAdministratif === 'C') return el('span', { class: 'badge badge-danger', text: 'Fermé' });
-  return el('span', { class: 'badge badge-neutral', text: 'État inconnu' });
-}
+    case 'cloudy':
+      return `<svg viewBox="0 0 60 50" width="56" height="46">
+        <path d="M18 39h25a9.5 9.5 0 001.2-18.9A13 13 0 0019 17.5 10.5 10.5 0 0018 39z"
+              fill="#eef0f3" stroke="#cfd4dc" stroke-width="3.2" stroke-linejoin="round"/>
+      </svg>`;
 
-/** État vide de la liste de résultats (élément de liste, pour rester valide). */
-export function emptyState({ title, message, iconName = 'info', action = null }) {
-  return el('li', { class: 'empty-state' }, [
-    icon(iconName),
-    el('h3', { text: title }),
-    el('p', { text: message }),
-    action,
-  ]);
-}
+    case 'fog':
+      return `<svg viewBox="0 0 60 50" width="56" height="46">
+        <path d="M16 30h27a8 8 0 001-15.9A11 11 0 0020 12a9 9 0 00-4 18z"
+              fill="#eef0f3" stroke="#cfd4dc" stroke-width="2.8"/>
+        <g stroke="#b8c0cc" stroke-width="2.4" stroke-linecap="round">
+          <line x1="12" y1="36" x2="48" y2="36"/><line x1="16" y1="42" x2="44" y2="42"/>
+        </g>
+      </svg>`;
 
-function mediaEmpty({ title, message, iconName = 'image', action = null }) {
-  return el('div', { class: 'media-empty' }, [
-    icon(iconName),
-    el('h4', { text: title }),
-    el('p', { text: message }),
-    action,
-  ]);
-}
+    case 'rain':
+      return `<svg viewBox="0 0 60 50" width="56" height="46">
+        <path d="M16 32h27a8.5 8.5 0 001-16.9A11.5 11.5 0 0019 13a9.2 9.2 0 00-3 19z"
+              fill="#eef0f3" stroke="#cbd2dc" stroke-width="2.8"/>
+        <g stroke="#3b82f6" stroke-width="2.4" stroke-linecap="round">
+          <line x1="20" y1="37" x2="17.5" y2="43"/><line x1="30" y1="37" x2="27.5" y2="43"/>
+          <line x1="40" y1="37" x2="37.5" y2="43"/>
+        </g>
+      </svg>`;
 
-function externalLink(href, label, iconName = 'external') {
-  const url = safeUrl(href);
-  if (!url) return el('span', { class: 'muted-xs', text: `${label} (indisponible)` });
-  return el('a', {
-    class: 'btn btn-sm btn-outline', href: url, target: '_blank', rel: 'noopener noreferrer',
-  }, [icon(iconName), label]);
-}
+    case 'snow':
+      return `<svg viewBox="0 0 60 50" width="56" height="46">
+        <path d="M16 32h27a8.5 8.5 0 001-16.9A11.5 11.5 0 0019 13a9.2 9.2 0 00-3 19z"
+              fill="#eef0f3" stroke="#cbd2dc" stroke-width="2.8"/>
+        <g fill="#60a5fa">
+          <circle cx="20" cy="40" r="2.2"/><circle cx="30" cy="42" r="2.2"/><circle cx="40" cy="40" r="2.2"/>
+        </g>
+      </svg>`;
 
-/* ==================================================================== */
-/* 3. Résultats                                                          */
-/* ==================================================================== */
+    case 'storm':
+      return `<svg viewBox="0 0 60 50" width="56" height="46">
+        <path d="M16 31h27a8.5 8.5 0 001-16.9A11.5 11.5 0 0019 12a9.2 9.2 0 00-3 19z"
+              fill="#e2e8f0" stroke="#94a3b8" stroke-width="2.8"/>
+        <path d="M31 30l-5 9h5l-2 8 9-10h-5l3-7z" fill="#f59e0b"/>
+      </svg>`;
 
-export function renderResultsSkeleton(container, count = 5) {
-  clear(container);
-  const wrap = el('div', { class: 'skeleton', 'aria-hidden': 'true' });
-  for (let i = 0; i < count; i += 1) wrap.append(el('div', { class: 'skeleton-row' }));
-  container.append(el('li', {}, [wrap]));
-}
-
-export function renderResults(container, { rows, selectedSiret, onSelect, handlers }) {
-  clear(container);
-  rows.forEach((row, index) => {
-    const { etablissement, entreprise } = row;
-    const item = el('li', {
-      class: `result-item${etablissement.siret === selectedSiret ? ' is-selected' : ''}`,
-      tabindex: '0',
-      role: 'button',
-      'aria-label': `${etablissement.nomAffiche}, ${etablissement.commune || 'commune inconnue'}`,
-      dataset: { siret: etablissement.siret },
-      onclick: () => onSelect(etablissement.siret),
-      onkeydown: (event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          onSelect(etablissement.siret);
-        }
-      },
-    });
-
-    const top = el('div', { class: 'result-top' });
-    const titles = el('div', {});
-    titles.append(el('p', { class: 'result-name', text: etablissement.nomAffiche }));
-    if (entreprise.raisonSociale && entreprise.raisonSociale !== etablissement.nomAffiche) {
-      titles.append(el('p', { class: 'result-company', text: `Société : ${entreprise.raisonSociale}` }));
-    }
-    top.append(titles);
-    top.append(el('span', { class: 'badge badge-neutral', text: String(index + 1) }));
-    item.append(top);
-
-    item.append(el('p', { class: 'result-addr' }, [
-      icon('pin'),
-      el('span', { text: etablissement.adresse || `${etablissement.codePostal} ${etablissement.commune}`.trim() || 'Adresse non publiée' }),
-    ]));
-
-    const meta = el('div', { class: 'result-meta' });
-    meta.append(statusBadge(etablissement));
-    if (etablissement.estSiege) meta.append(el('span', { class: 'badge badge-accent', text: 'Siège' }));
-    else meta.append(el('span', { class: 'badge badge-neutral', text: 'Établissement' }));
-    if (etablissement.naf) meta.append(el('span', { class: 'badge badge-primary', text: etablissement.naf, title: nafLabel(etablissement.naf) }));
-    if (entreprise.nombreEtablissements > 1) {
-      meta.append(el('span', {
-        class: 'badge badge-neutral',
-        text: `${formatNumberFr(entreprise.nombreEtablissements)} sites`,
-        title: 'Nombre d\'établissements de cette société',
-      }));
-    }
-    meta.append(el('span', { class: 'mono', text: `SIRET ${formatSiret(etablissement.siret)}` }));
-    item.append(meta);
-
-    const actions = el('div', { class: 'result-actions' });
-    actions.append(el('button', {
-      type: 'button',
-      class: 'btn btn-sm btn-outline',
-      onclick: (event) => { event.stopPropagation(); onSelect(etablissement.siret); },
-    }, [icon('file'), 'Consulter la fiche']));
-    if (Number.isFinite(etablissement.latitude)) {
-      actions.append(el('button', {
-        type: 'button',
-        class: 'btn btn-sm btn-ghost',
-        title: 'Copier les coordonnées SIRENE',
-        onclick: (event) => {
-          event.stopPropagation();
-          handlers?.onCopy?.(formatCoords(etablissement.latitude, etablissement.longitude), 'les coordonnées GPS');
-        },
-      }, [icon('copy'), 'GPS']));
-    }
-    item.append(actions);
-    container.append(item);
-  });
-}
-
-export function renderNotices(container, notices) {
-  clear(container);
-  if (!notices?.length) {
-    container.hidden = true;
-    return;
+    case 'partly-cloudy':
+    default:
+      return `<svg viewBox="0 0 62 50" width="58" height="47">
+        <g stroke="#f7b731" stroke-width="2.3" stroke-linecap="round">
+          <line x1="41" y1="5" x2="41" y2="8.5"/>
+          <line x1="51.5" y1="9.5" x2="49" y2="12"/>
+          <line x1="56" y1="20" x2="52.5" y2="20"/>
+          <line x1="51.5" y1="30.5" x2="49" y2="28"/>
+          <line x1="30.5" y1="9.5" x2="33" y2="12"/>
+        </g>
+        <circle cx="41" cy="20" r="8.2" fill="#f7b731"/>
+        <path d="M15 40h24.5a8.5 8.5 0 001-16.9A11.5 11.5 0 0018 20.5 9.8 9.8 0 0015 40z"
+              fill="#ffffff" stroke="#d5d8de" stroke-width="3.6" stroke-linejoin="round"/>
+      </svg>`;
   }
-  container.hidden = false;
-  const wrap = el('div', {});
-  notices.forEach((notice) => {
-    wrap.append(el('div', { class: `notice notice-${notice.type}`, style: 'margin:0 0 8px' }, [
-      icon(notice.type === 'error' ? 'alert' : (notice.type === 'warning' ? 'alert' : 'info')),
-      el('span', { text: notice.text }),
-    ]));
-  });
-  container.append(wrap);
-}
-
-export function renderPagination(container, { page, totalPages, onPage }) {
-  clear(container);
-  if (!totalPages || totalPages <= 1) {
-    container.hidden = true;
-    return;
-  }
-  container.hidden = false;
-  container.append(el('button', {
-    type: 'button', class: 'btn btn-sm btn-outline', disabled: page <= 1,
-    onclick: () => onPage(page - 1),
-  }, [icon('chevron-left'), 'Précédent']));
-  container.append(el('span', { class: 'page-info', text: `Page ${page} sur ${totalPages}` }));
-  container.append(el('button', {
-    type: 'button', class: 'btn btn-sm btn-outline', disabled: page >= totalPages,
-    onclick: () => onPage(page + 1),
-  }, ['Suivant', icon('chevron-right')]));
 }
 
 /* ==================================================================== */
-/* 4. Fiche détaillée                                                    */
+/* 2. Histogramme mensuel d'électricité (J..D)                           */
 /* ==================================================================== */
 
-/** Références vers les zones mises à jour dynamiquement. */
-export const detailRefs = {};
-
-const TABS = [
-  { key: 'toiture', label: 'Voir toiture ou Parking', icon: 'satellite' },
-  { key: 'images', label: 'Images', icon: 'camera' },
-  { key: 'meteo', label: 'Météo et Vue actuel du zone', icon: 'map' },
-  { key: 'sources', label: 'Sources', icon: 'link' },
-];
-
-export function renderDetail(container, fiche, handlers) {
-  const { etablissement: e, entreprise: c } = fiche.row;
-  clear(container);
-  container.hidden = false;
-
-  /* --- En-tête ------------------------------------------------------- */
-  const head = el('div', { class: 'detail-head' });
-  const titleRow = el('div', { class: 'detail-title-row' });
-  const titleBlock = el('div', {});
-  titleBlock.append(el('h2', { class: 'detail-title', id: 'titre-fiche', text: e.nomAffiche }));
-  titleBlock.append(el('p', {
-    class: 'detail-sub',
-    text: [c.raisonSociale !== e.nomAffiche ? c.raisonSociale : '', `SIREN ${formatSiren(c.siren)}`, e.estSiege ? 'Siège social' : 'Établissement']
-      .filter(Boolean).join(' · '),
-  }));
-  titleRow.append(titleBlock);
-  titleRow.append(el('button', {
-    type: 'button',
-    class: `icon-btn${fiche.isFavorite ? ' is-active' : ''}`,
-    title: fiche.isFavorite ? 'Retirer des fiches enregistrées' : 'Enregistrer cette fiche',
-    'aria-label': fiche.isFavorite ? 'Retirer des fiches enregistrées' : 'Enregistrer cette fiche',
-    onclick: () => handlers.onToggleFavorite?.(),
-  }, [icon('star')]));
-  head.append(titleRow);
-
-  const badges = el('div', { class: 'detail-badges' });
-  badges.append(statusBadge(e));
-  if (e.estSiege) badges.append(el('span', { class: 'badge badge-accent', text: 'Siège social' }));
-  if (e.naf) badges.append(el('span', { class: 'badge badge-primary', text: truncate(nafWithLabel(e.naf), 70) }));
-  if (e.commune) badges.append(el('span', { class: 'badge badge-neutral', text: `${e.codePostal} ${e.commune}` }));
-  if (c.categorie) badges.append(el('span', { class: 'badge badge-neutral', text: c.categorie }));
-  if (e.nonDiffusible) badges.append(el('span', { class: 'badge badge-warning', text: 'Non diffusible' }));
-  head.append(badges);
-
-  container.append(head);
-
-  /* --- Onglets ------------------------------------------------------- */
-  const tabs = el('div', { class: 'tabs', role: 'tablist' });
-  TABS.forEach((tab) => {
-    tabs.append(el('button', {
-      type: 'button',
-      class: `tab-btn${tab.key === (fiche.activeTab || 'toiture') ? ' is-active' : ''}`,
-      role: 'tab',
-      'aria-selected': String(tab.key === (fiche.activeTab || 'toiture')),
-      dataset: { tab: tab.key },
-      onclick: () => handlers.onTabChange?.(tab.key),
-    }, [icon(tab.icon), tab.label]));
-  });
-  container.append(tabs);
-
-  const panels = {};
-  TABS.forEach((tab) => {
-    const panel = el('div', {
-      class: 'tab-panel', role: 'tabpanel', dataset: { panel: tab.key },
-      hidden: tab.key !== (fiche.activeTab || 'toiture'),
-    });
-    panels[tab.key] = panel;
-    container.append(panel);
-  });
-
-  const siteHost = el('div', { id: 'site-host' });
-  panels.toiture.append(siteHost);
-  detailRefs.siteHost = siteHost;
-  const weatherHost = el('div', { id: 'weather-host' });
-  panels.meteo.append(weatherHost);
-  detailRefs.weatherHost = weatherHost;
-
-  detailRefs.panels = panels;
-  detailRefs.container = container;
-  detailRefs.tabs = tabs;
-
-  /* --- Panneau 2 : images -------------------------------------------- */
-  const images = panels.images;
-
-  const aerial = el('div', { class: 'media-block' });
-  aerial.append(el('div', { class: 'media-head' }, [
-    el('h3', {}, [icon('satellite'), 'A. Vue aérienne — photographie IGN BD ORTHO®']),
-    el('span', { class: 'media-note', text: 'Orthophotographie réelle, pas un plan.' }),
-  ]));
-  const aerialHost = el('div', { id: 'aerial-host' });
-  aerial.append(aerialHost);
-  images.append(aerial);
-  detailRefs.aerialHost = aerialHost;
-
-  const street = el('div', { class: 'media-block' });
-  street.append(el('div', { class: 'media-head' }, [
-    el('h3', {}, [icon('camera'), 'B. Photographies de rue']),
-    el('div', { class: 'aerial-actions', id: 'street-actions' }),
-  ]));
-  const streetHost = el('div', { id: 'street-host' });
-  street.append(streetHost);
-  images.append(street);
-  detailRefs.streetHost = streetHost;
-  detailRefs.streetActions = street.querySelector('#street-actions');
-
-  const immersive = el('div', { class: 'media-block' });
-  immersive.append(el('div', { class: 'media-head' }, [
-    el('h3', {}, [icon('expand'), 'C. Vue immersive — Street View 360°']),
-    el('span', { class: 'media-note', text: 'Chargée uniquement à votre demande.' }),
-  ]));
-  const streetviewHost = el('div', { id: 'streetview-host' });
-  immersive.append(streetviewHost);
-  images.append(immersive);
-  detailRefs.streetviewHost = streetviewHost;
-
-  /* --- Panneau 4 : sources ------------------------------------------- */
-  panels.sources.append(renderSources(fiche));
-
-  return detailRefs;
-}
-
-export function setActiveTab(container, key) {
-  container.querySelectorAll('.tab-btn').forEach((button) => {
-    const active = button.dataset.tab === key;
-    button.classList.toggle('is-active', active);
-    button.setAttribute('aria-selected', String(active));
-  });
-  container.querySelectorAll('.tab-panel').forEach((panel) => {
-    panel.hidden = panel.dataset.panel !== key;
-  });
-}
-
-/* --------------------------- 4b. Images ----------------------------- */
-
-export function renderAerialPlaceholder(fiche, handlers) {
-  const host = detailRefs.aerialHost;
-  if (!host) return;
-  clear(host);
-  if (!fiche.position) {
-    host.append(mediaEmpty({
-      iconName: 'satellite',
-      title: 'Photographie aérienne indisponible',
-      message: fiche.positionError || 'Aucune coordonnée exploitable : impossible de centrer une orthophotographie sur cet établissement.',
-    }));
-    return;
-  }
-
-  const wrap = el('div', { class: 'aerial-wrap' });
-  wrap.append(el('span', { class: 'aerial-badge' }, [icon('satellite'), 'IGN BD ORTHO®']));
-  wrap.append(el('span', { class: 'aerial-scale-note', id: 'aerial-zoom-note', text: `Zoom ${config.imagery.aerialZoom}` }));
-  const mapNode = el('div', { class: 'aerial-map', id: 'aerial-map', role: 'application', 'aria-label': 'Photographie aérienne IGN de l\'établissement' });
-  wrap.append(mapNode);
-
-  const toolbar = el('div', { class: 'aerial-toolbar' });
-  toolbar.append(el('span', { text: `${formatCoords(fiche.position.lat, fiche.position.lon)} · ${precisionLabel(fiche.position.precision)}` }));
-  const actions = el('div', { class: 'aerial-actions' });
-  actions.append(el('button', { type: 'button', class: 'btn btn-sm btn-outline', onclick: () => handlers.onAerialZoom?.(-1) }, ['− Dézoomer']));
-  actions.append(el('button', { type: 'button', class: 'btn btn-sm btn-outline', onclick: () => handlers.onAerialZoom?.(1) }, ['+ Zoomer']));
-  actions.append(el('button', { type: 'button', class: 'btn btn-sm btn-outline', onclick: () => handlers.onAerialRecenter?.() }, [icon('target'), 'Recentrer']));
-  actions.append(externalLink(ignTimeLink(fiche.position.lat, fiche.position.lon), 'Comparer les millésimes IGN', 'external'));
-  toolbar.append(actions);
-  wrap.append(toolbar);
-  host.append(wrap);
-  detailRefs.aerialMapNode = mapNode;
-  detailRefs.aerialZoomNote = wrap.querySelector('#aerial-zoom-note');
-  return mapNode;
-}
-
-export function renderAerialError(message) {
-  const host = detailRefs.aerialHost;
-  if (!host) return;
-  clear(host);
-  host.append(mediaEmpty({
-    iconName: 'alert',
-    title: 'Photographie aérienne indisponible',
-    message: `${message} Aucune image de substitution n'est affichée : vous pouvez utiliser le fond de plan ou réessayer plus tard.`,
-  }));
-}
-
-function photoCard(photo, { onOpen, onRemove = null }) {
-  const card = el('div', { class: 'photo-card' });
-  const button = el('button', {
-    type: 'button', class: 'photo-thumb', title: 'Agrandir la photographie',
-    onclick: () => onOpen?.(photo),
-  });
-  const image = el('img', {
-    src: photo.thumbUrl, alt: `Photographie de rue à proximité — ${photo.providerName}`, loading: 'lazy', decoding: 'async',
-  });
-  image.addEventListener('error', () => {
-    button.replaceChildren(el('span', { class: 'muted-xs', style: 'display:grid;place-items:center;height:100%', text: 'Image indisponible' }));
-    button.disabled = true;
-  });
-  button.append(image);
-  if (photo.isPano) button.append(el('span', { class: 'photo-tag', text: '360°' }));
-  else if (photo.distanceM != null) button.append(el('span', { class: 'photo-tag', text: `${photo.distanceM} m` }));
-  card.append(button);
-
-  const meta = el('div', { class: 'photo-meta' });
-  meta.append(el('strong', { text: photo.providerName }));
-  meta.append(el('span', { text: photo.capturedAt ? `Prise de vue : ${formatDateFr(photo.capturedAt)}` : 'Date de prise de vue inconnue' }));
-  meta.append(el('span', { text: `Auteur : ${truncate(photo.author || 'inconnu', 40)}` }));
-  meta.append(el('span', { text: `Licence : ${truncate(photo.licence || 'non renseignée', 40)}` }));
-  const links = el('span', { style: 'display:flex;gap:8px;flex-wrap:wrap' });
-  if (safeUrl(photo.pageUrl)) {
-    links.append(el('a', { href: safeUrl(photo.pageUrl), target: '_blank', rel: 'noopener noreferrer', text: 'Voir la source ↗' }));
-  }
-  if (onRemove) {
-    links.append(el('button', {
-      type: 'button', class: 'btn btn-sm btn-ghost', style: 'padding:0;font-size:12px',
-      onclick: () => onRemove(photo),
-    }, 'Retirer'));
-  }
-  meta.append(links);
-  card.append(meta);
-  return card;
-}
-
-export function renderStreetPhotos({ loading, photos, sources, radiusM, error }, handlers) {
-  const host = detailRefs.streetHost;
-  const actions = detailRefs.streetActions;
-  if (!host) return;
-  clear(host);
-  if (actions) {
-    clear(actions);
-    const select = el('select', {
-      class: 'select-sm', title: 'Rayon de recherche des photographies',
-      onchange: (event) => handlers.onRadiusChange?.(Number(event.target.value)),
-    });
-    config.imagery.streetRadiusOptions.forEach((value) => {
-      select.append(el('option', { value: String(value), selected: value === radiusM, text: `Rayon ${value} m` }));
-    });
-    actions.append(select);
-    actions.append(el('button', { type: 'button', class: 'btn btn-sm btn-outline', onclick: () => handlers.onReloadPhotos?.() }, [icon('reset'), 'Actualiser']));
-  }
-
-  if (loading) {
-    host.append(el('p', { class: 'muted', text: 'Recherche de photographies géolocalisées à proximité…' }));
-    return;
-  }
-
-  if (error) {
-    host.append(mediaEmpty({ iconName: 'alert', title: 'Recherche impossible', message: error }));
-    return;
-  }
-
-  if (sources?.length) {
-    const list = el('div', { class: 'coverage-legend', style: 'margin-bottom:12px' });
-    sources.filter((source) => source.status === 'ok' || source.status === 'error').forEach((source) => {
-      const cls = source.status === 'ok' ? 'badge-success' : (source.status === 'error' ? 'badge-danger' : 'badge-neutral');
-      list.append(el('span', { class: `badge ${cls}`, title: source.message, text: `${source.name} : ${source.count}` }));
-    });
-    host.append(list);
-  }
-
-  if (photos?.length) {
-    const grid = el('div', { class: 'photo-grid' });
-    photos.forEach((photo) => grid.append(photoCard(photo, { onOpen: handlers.onOpenPhoto })));
-    host.append(grid);
-    host.append(el('p', { class: 'muted-xs', style: 'margin-top:10px', text: `Photographies géolocalisées dans un rayon de ${radiusM} m autour des coordonnées affichées. Elles montrent l'environnement de l'adresse, pas nécessairement l'intérieur ni l'enseigne de l'entreprise.` }));
-  } else {
-    host.append(mediaEmpty({
-      iconName: 'camera',
-      title: 'Aucune photographie de rue disponible',
-      message: `Aucune photographie n'a pu être affichée dans un rayon de ${radiusM} m. Augmentez le rayon ou consultez la vue aérienne.`,
-    }));
-  }
-
-  (sources || []).filter((source) => source.status === 'error').forEach((source) => {
-    host.append(el('div', { class: `notice notice-${source.status === 'error' ? 'error' : 'info'}`, style: 'margin:10px 0 0' }, [
-      icon(source.status === 'error' ? 'alert' : 'info'),
-      el('span', { text: `${source.name} — ${source.message}` }),
-    ]));
-  });
-}
-
-/* ------------------------------------------------------------------ */
-/* D. Vue immersive « Street View » 360°                               */
-/* ------------------------------------------------------------------ */
-
-const COMPASS = [
-  { deg: 0, label: 'N' }, { deg: 90, label: 'E' }, { deg: 180, label: 'S' }, { deg: 270, label: 'O' },
-];
-
-/**
- * Rend la section immersive. Aucun iframe n'est créé tant que `loaded` est
- * faux : le fournisseur tiers ne reçoit alors aucune requête, ne dépose aucun
- * cookie et n'ouvre aucun contexte de navigation.
- */
-export function renderStreetView({ providers = [], selected = null, loaded = false, heading = 0, photoIndex = 0, position = null }, handlers) {
-  const host = detailRefs.streetviewHost;
-  if (!host) return;
-  clear(host);
-
-  /* --- Sélecteur de source ------------------------------------------ */
-  const chooser = el('div', { class: 'sv-chooser', role: 'group', 'aria-label': 'Source de la vue immersive' });
-  providers.forEach((provider) => {
-    const active = selected?.key === provider.key;
-    const ready = provider.status === 'ready';
-    chooser.append(el('button', {
-      type: 'button',
-      class: `sv-provider${active ? ' is-active' : ''}${ready ? '' : ' is-disabled'}`,
-      disabled: !ready,
-      title: ready ? provider.note : provider.reason,
-      'aria-pressed': active ? 'true' : 'false',
-      onclick: () => ready && handlers.onSelectProvider?.(provider.key),
-    }, [
-      el('strong', { text: provider.name }),
-      el('span', { class: 'sv-provider-note', text: ready ? (provider.needsKey ? 'clé configurée' : 'sans clé') : 'indisponible' }),
-    ]));
-  });
-  host.append(chooser);
-
-  if (!selected || selected.status !== 'ready') {
-    host.append(mediaEmpty({
-      iconName: 'expand',
-      title: 'Aucune vue immersive disponible pour ce point',
-      message: 'Aucune photographie sphérique n\'a été trouvée à proximité et Google Street View n\'est pas configuré. '
-        + 'Augmentez le rayon de recherche des photographies de rue, ou activez une source. Aucune vue de remplacement n\'est inventée.',
-    }));
-    const reasons = el('ul', { class: 'sv-reasons' });
-    providers.forEach((provider) => {
-      reasons.append(el('li', {}, [el('strong', { text: `${provider.name} — ` }), provider.reason]));
-    });
-    host.append(reasons);
-    return;
-  }
-
-  const photo = selected.photos?.[photoIndex] || selected.photo || null;
-  const immersion = selected.key === 'google' ? selected.immersion : describeImmersion(photo);
-  const supportsHeading = selected.key !== 'mapillary';
-
-  /* --- Cadre : affiche AVANT chargement, iframe APRÈS clic ----------- */
-  const stage = el('div', { class: 'sv-stage' });
-  stage.style.minHeight = `${config.streetView.frameHeight}px`;
-
-  if (!loaded) {
-    const poster = el('div', { class: 'sv-poster' });
-    if (photo?.thumbUrl) {
-      const image = el('img', { src: photo.thumbUrl, alt: '', loading: 'lazy', decoding: 'async', 'aria-hidden': 'true' });
-      image.addEventListener('error', () => image.remove());
-      poster.append(image);
-    }
-    poster.append(el('div', { class: 'sv-poster-veil' }));
-    poster.append(el('div', { class: 'sv-poster-action' }, [
-      el('button', {
-        type: 'button', class: 'btn btn-primary sv-launch',
-        onclick: () => handlers.onLoadEmbed?.(),
-      }, [icon('expand'), `Ouvrir la vue immersive — ${selected.shortName}`]),
-      el('p', {
-        class: 'sv-consent',
-        text: `Aucune requête n'est envoyée à ${selected.shortName} avant votre clic. `
-          + 'Le chargement ouvre un cadre externe qui peut déposer ses propres cookies.',
-      }),
-    ]));
-    stage.append(poster);
-  } else {
-    const url = handlers.resolveUrl?.() || selected.url;
-    if (!url) {
-      stage.append(mediaEmpty({ iconName: 'alert', title: 'Vue immersive indisponible', message: 'Impossible de construire l\'adresse du viewer pour cette source.' }));
-    } else {
-      const frame = el('iframe', {
-        ...frameAttributes(`Vue immersive ${selected.name} autour de l'adresse`),
-        class: 'sv-frame',
-        src: url,
-      });
-      frame.style.height = `${config.streetView.frameHeight}px`;
-      stage.append(frame);
-    }
-  }
-  host.append(stage);
-
-  /* --- Barre d'outils ------------------------------------------------ */
-  const toolbar = el('div', { class: 'sv-toolbar' });
-
-  if (loaded && supportsHeading) {
-    const turn = (delta) => handlers.onHeadingChange?.(heading + delta);
-    toolbar.append(el('button', { type: 'button', class: 'btn btn-sm btn-outline', title: 'Tourner vers la gauche', onclick: () => turn(-45) }, [icon('chevron-left'), '45°']));
-    toolbar.append(el('span', { class: 'sv-heading', text: `Cap ${Math.round(heading)}°` }));
-    toolbar.append(el('button', { type: 'button', class: 'btn btn-sm btn-outline', title: 'Tourner vers la droite', onclick: () => turn(45) }, ['45°', icon('chevron-right')]));
-    const compass = el('span', { class: 'sv-compass' });
-    COMPASS.forEach((point) => compass.append(el('button', {
-      type: 'button', class: 'btn btn-sm btn-ghost', title: `Regarder vers ${point.label}`,
-      onclick: () => handlers.onHeadingChange?.(point.deg),
-    }, point.label)));
-    toolbar.append(compass);
-  } else if (loaded) {
-    toolbar.append(el('span', { class: 'muted-xs', text: 'Orientation pilotée directement dans le viewer Mapillary.' }));
-  }
-
-  if (selected.photos?.length > 1) {
-    toolbar.append(el('span', { class: 'sv-count', text: `Photo ${photoIndex + 1}/${selected.photos.length}` }));
-    toolbar.append(el('button', {
-      type: 'button', class: 'btn btn-sm btn-outline', disabled: photoIndex <= 0,
-      title: 'Photographie précédente', onclick: () => handlers.onPhotoChange?.(photoIndex - 1),
-    }, [icon('chevron-left')]));
-    toolbar.append(el('button', {
-      type: 'button', class: 'btn btn-sm btn-outline', disabled: photoIndex >= selected.photos.length - 1,
-      title: 'Photographie suivante', onclick: () => handlers.onPhotoChange?.(photoIndex + 1),
-    }, [icon('chevron-right')]));
-  }
-
-  if (loaded) {
-    toolbar.append(el('button', { type: 'button', class: 'btn btn-sm btn-ghost', onclick: () => handlers.onCloseEmbed?.() }, [icon('close'), 'Fermer la vue']));
-  }
-  if (photo?.pageUrl) {
-    toolbar.append(el('a', {
-      class: 'btn btn-sm btn-ghost', href: safeUrl(photo.pageUrl), target: '_blank', rel: 'noopener noreferrer',
-    }, [icon('external'), `Ouvrir chez ${selected.shortName}`]));
-  } else if (selected.key === 'google' && position) {
-    toolbar.append(el('a', {
-      class: 'btn btn-sm btn-ghost',
-      href: `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${position.lat},${position.lon}`,
-      target: '_blank', rel: 'noopener noreferrer',
-    }, [icon('external'), 'Ouvrir dans Google Maps']));
-  }
-  if (toolbar.childNodes.length) host.append(toolbar);
-
-  /* --- Attribution et qualification honnête -------------------------- */
-  const caption = el('div', { class: 'sv-caption' });
-  caption.append(el('span', { class: `badge ${immersion.immersive ? 'badge-success' : 'badge-neutral'}`, text: immersion.label }));
-  if (photo) {
-    caption.append(el('span', { text: photo.capturedAt ? `Prise de vue : ${formatDateFr(photo.capturedAt)}` : 'Date de prise de vue inconnue' }));
-    caption.append(el('span', { text: `Auteur : ${truncate(photo.author || 'inconnu', 40)}` }));
-    if (photo.distanceM != null) caption.append(el('span', { text: `À ${photo.distanceM} m du point` }));
-  } else {
-    caption.append(el('span', { text: 'Panoramas Google — la date de prise de vue n\'est pas fournie par l\'API Embed.' }));
-  }
-  caption.append(el('span', { text: `Licence : ${truncate(photo?.licence || selected.licence, 60)}` }));
-  host.append(caption);
-  host.append(el('p', { class: 'muted-xs sv-detail', text: immersion.detail }));
-}
-
-/* --------------------------- 4d. Sources ---------------------------- */
-
-function renderSources(fiche) {
-  const wrap = el('div', {});
-  wrap.append(el('p', { class: 'muted', style: 'margin-bottom:16px', text: 'Chaque donnée affichée provient d\'un service public ou ouvert. Voici la provenance exacte et les conditions d\'utilisation.' }));
-
-  const rows = [
-    ['Identification, SIREN/SIRET, adresses, état administratif, NAF',
-      'API Recherche d\'entreprises — DINUM / Annuaire des Entreprises',
-      'https://recherche-entreprises.api.gouv.fr/docs/', 'Licence Ouverte 2.0'],
-    ['Géocodage des adresses, coordonnées, géocodage inverse',
-      'Base Adresse Nationale via Géoplateforme IGN',
-      'https://cartes.gouv.fr/aide/fr/guides-utilisateur/utiliser-les-services-de-la-geoplateforme/geocodage/', 'Licence Ouverte 2.0'],
-    ['Coordonnées de secours',
-      'Géolocalisation SIRENE (INSEE) fournie par l\'API entreprises',
-      'https://www.insee.fr/fr/information/3591226', 'Licence Ouverte 2.0'],
-    ['Fond de plan',
-      'OpenStreetMap', 'https://www.openstreetmap.org/copyright', 'ODbL — attribution obligatoire'],
-    ['Fond de plan alternatif',
-      'Plan IGN — Géoplateforme', 'https://geoservices.ign.fr/', 'IGN, usage libre avec attribution'],
-    ['Photographie aérienne',
-      'BD ORTHO® — IGN / Géoplateforme', 'https://geoservices.ign.fr/documentation/donnees/ortho/bdortho', 'IGN, attribution obligatoire'],
-    ['Photographies de rue (sans jeton)',
-      'Panoramax — fédération IGN / OpenStreetMap France', 'https://panoramax.fr/', 'CC BY-SA 4.0 ou Licence Ouverte selon l\'instance'],
-    ['Photographies de rue (jeton gratuit)',
-      'Mapillary', 'https://www.mapillary.com/', 'CC BY-SA 4.0'],
-    ['Vue immersive 360° (sans clé)',
-      'Panoramax — viewer officiel intégré', 'https://docs.panoramax.fr/web-viewer/', 'CC BY-SA 4.0 ou Licence Ouverte selon la séquence'],
-    ['Vue immersive 360° (embed public)',
-      'Mapillary Embed', 'https://www.mapillary.com/developer/api-documentation', 'CC BY-SA 4.0'],
-    ['Vue immersive 360° (optionnelle, clé requise)',
-      'Google Street View — API Maps Embed', 'https://developers.google.com/maps/documentation/embed/get-started', 'Conditions Google Maps Platform — Embed gratuit et illimité'],
-    ['Libellés NAF, départements, régions, catégories juridiques',
-      'INSEE — nomenclatures publiques', 'https://www.insee.fr/', 'Licence Ouverte 2.0'],
-  ];
-
-  const table = el('table', { class: 'table' });
-  table.append(el('thead', {}, [el('tr', {}, [
-    el('th', { text: 'Donnée' }), el('th', { text: 'Source' }), el('th', { text: 'Conditions' }),
-  ])]));
-  const tbody = el('tbody');
-  rows.forEach(([donnee, source, url, licence]) => {
-    tbody.append(el('tr', {}, [
-      el('td', { text: donnee }),
-      el('td', {}, [el('a', { href: url, target: '_blank', rel: 'noopener noreferrer', text: source })]),
-      el('td', { text: licence }),
-    ]));
-  });
-  table.append(tbody);
-  wrap.append(el('div', { class: 'table-wrap' }, [table]));
-
-  if (fiche.apiUrl) {
-    wrap.append(el('p', { class: 'muted-xs', style: 'margin-top:12px' }, [
-      'Requête API utilisée pour cette fiche : ',
-      el('a', { href: fiche.apiUrl, target: '_blank', rel: 'noopener noreferrer', text: truncate(fiche.apiUrl, 120) }),
-    ]));
-  }
-  wrap.append(el('p', { class: 'muted-xs', style: 'margin-top:8px', text: 'Les photographies de rue montrent l\'environnement de l\'adresse : elles ne constituent pas une preuve de l\'identité de l\'occupant actuel du bâtiment.' }));
-  return wrap;
-}
-
-/* ==================================================================== */
-/* 5. Paramètres                                                         */
-/* ==================================================================== */
-
-function settingRow({ name, description, control }) {
-  return el('div', { class: 'setting-row' }, [
-    el('div', { class: 'setting-text' }, [
-      el('p', { class: 'setting-name', text: name }),
-      el('p', { class: 'setting-desc', text: description }),
-    ]),
-    control,
-  ]);
-}
-
-function switchControl(checked, onChange, label) {
-  const input = el('input', { type: 'checkbox', checked, 'aria-label': label, onchange: (event) => onChange(event.target.checked) });
-  return el('label', { class: 'switch' }, [input, el('span', { class: 'track' })]);
-}
-
-function selectControl(options, value, onChange, label) {
-  const select = el('select', { 'aria-label': label, onchange: (event) => onChange(event.target.value) });
-  options.forEach((option) => select.append(el('option', { value: String(option.value), selected: String(option.value) === String(value), text: option.label })));
-  return select;
-}
-
-/* ==================================================================== */
-/* 8 bis. Vue de rue superposée à la carte (4e bouton « Street View »)   */
-/* ==================================================================== */
-
-/**
- * Met à jour la vue de rue affichée par-dessus la carte.
- *
- * @param {HTMLElement} container #map-street
- * @param {{status: 'loading'|'ready'|'empty'|'error', photo: object|null,
- *   message?: string, label?: string}} view
- */
-export function renderMapStreet(container, { status = 'loading', photo = null, message = '', label = '' } = {}) {
+export function renderElectricityChart(container, series = []) {
   if (!container) return;
-  const find = (id) => container.querySelector(`#${id}`);
-  const img = find('map-street-img');
-  const badge = find('map-street-badge');
-  const credit = find('map-street-credit');
-  const labelNode = find('map-street-label');
-  const counter = find('map-street-counter');
-  const openLink = find('map-street-open');
-  const prev = find('map-street-prev');
-  const next = find('map-street-next');
-  const stateText = find('map-street-state-text');
+  const items = series.length === 12
+    ? series
+    : MONTH_LETTERS.map((letter) => ({ letter, month: letter, kwh: 0, heightPct: 20 }));
 
-  const ready = status === 'ready' && photo;
-  container.dataset.state = ready ? 'ready' : status;
-  container.setAttribute('aria-busy', String(status === 'loading'));
-
-  if (ready) {
-    if (img) {
-      const url = safeUrl(photo.url) || '';
-      const fallback = safeUrl(photo.thumbUrl) || '';
-      // Une URL haute définition peut échouer (instance lente) : on retombe
-      // une seule fois sur la vignette, jamais sur une image d'illustration.
-      img.onerror = () => {
-        if (fallback && img.getAttribute('src') !== fallback) img.setAttribute('src', fallback);
-      };
-      if (img.getAttribute('src') !== url) img.setAttribute('src', url);
-      img.alt = photo.alt || '';
-      img.classList.toggle('is-pano', Boolean(photo.isPano));
-      if (photo.pano) {
-        // Cadrage du panorama : largeur et décalage calculés pour placer
-        // l'immeuble au centre de la vue.
-        img.style.setProperty('--pano-width', `${photo.pano.widthPct}%`);
-        img.style.setProperty('--pano-left', `${photo.pano.leftPct}%`);
-      } else {
-        img.style.removeProperty('--pano-width');
-        img.style.removeProperty('--pano-left');
-      }
-      img.hidden = false;
-    }
-    if (badge) badge.textContent = photo.badge || 'Street View';
-    if (credit) credit.textContent = photo.credit || '';
-    if (counter) {
-      counter.textContent = photo.total > 1 ? photo.counter : '';
-      counter.hidden = photo.total <= 1;
-    }
-    const multiple = photo.total > 1;
-    if (prev) prev.hidden = !multiple;
-    if (next) next.hidden = !multiple;
-    if (openLink) {
-      const href = safeUrl(photo.pageUrl) || '';
-      if (href) {
-        openLink.setAttribute('href', href);
-        openLink.hidden = false;
-      } else {
-        openLink.removeAttribute('href');
-        openLink.hidden = true;
-      }
-    }
-  } else {
-    if (img) {
-      img.hidden = true;
-      img.removeAttribute('src');
-      img.classList.remove('is-pano');
-      img.style.removeProperty('--pano-width');
-      img.style.removeProperty('--pano-left');
-      img.onerror = null;
-      img.alt = '';
-    }
-    if (badge) badge.textContent = 'Street View';
-    if (credit) credit.textContent = '';
-    if (counter) { counter.textContent = ''; counter.hidden = true; }
-    if (prev) prev.hidden = true;
-    if (next) next.hidden = true;
-    if (openLink) { openLink.removeAttribute('href'); openLink.hidden = true; }
-    if (stateText) stateText.textContent = message || 'Recherche d’une image de rue…';
-  }
-
-  if (labelNode) {
-    labelNode.textContent = label || '';
-    labelNode.hidden = !label;
-  }
-}
-
-export function renderSettings(container, { settings: current, info, mapillaryAccess, transport, googleStreetView }, handlers) {
-  clear(container);
-
-  const networkOk = Boolean(transport?.available) && !transport?.relayFailed;
-  const network = el('div', { class: 'setting-group' }, [el('h3', { text: 'Connexion aux services' })]);
-  network.append(el('div', { class: `notice notice-${networkOk ? 'info' : 'warning'}`, style: 'margin:0' }, [
-    icon(networkOk ? 'check' : 'alert'),
-    el('span', { text: transport?.label || 'Chemin réseau inconnu.' }),
-  ]));
-  network.append(el('p', {
-    class: 'muted-xs',
-    style: 'margin-top:8px',
-    text: 'Avec « node server.js », les requêtes sont relayées par le serveur local : aucun blocage CORS possible, '
-      + 'et le jeton Mapillary reste côté serveur. Avec un serveur statique simple, les API sont appelées directement '
-      + 'depuis le navigateur, ce qui peut être bloqué pour l\'API Recherche d\'entreprises.',
-  }));
-  container.append(network);
-
-  const privacy = el('div', { class: 'setting-group' }, [el('h3', { text: 'Confidentialité' })]);
-  privacy.append(settingRow({
-    name: 'Enregistrer l\'historique sur cet appareil',
-    description: 'Désactivé par défaut. Si activé, vos recherches et fiches consultées sont conservées dans le navigateur uniquement (jamais envoyées).',
-    control: switchControl(current.historyEnabled, (value) => handlers.onSetting('historyEnabled', value), 'Activer l\'historique local'),
-  }));
-  privacy.append(settingRow({
-    name: 'Stockage local',
-    description: info.persistent
-      ? `${info.entries} entrées · ${info.kilobytes} Ko · ${info.cacheEntries} entrées de cache · ${info.favorites} fiche(s) enregistrée(s).`
-      : 'LocalStorage indisponible (navigation privée ?) : les données ne seront pas conservées après fermeture.',
-    control: el('button', { type: 'button', class: 'btn btn-sm btn-danger', onclick: () => handlers.onPurgeData() }, [icon('trash'), 'Tout effacer']),
-  }));
-  privacy.append(settingRow({
-    name: 'Cache des API',
-    description: 'Évite les appels inutiles : recherches 6 h, géocodage 30 jours, photographies 24 h.',
-    control: el('button', { type: 'button', class: 'btn btn-sm btn-outline', onclick: () => handlers.onPurgeCache() }, [icon('reset'), 'Vider le cache']),
-  }));
-  container.append(privacy);
-
-  const search = el('div', { class: 'setting-group' }, [el('h3', { text: 'Recherche' })]);
-  search.append(settingRow({
-    name: 'Résultats par page',
-    description: 'L\'API plafonne à 25 résultats par page.',
-    control: selectControl([{ value: 10, label: '10' }, { value: 25, label: '25' }], current.perPage, (value) => handlers.onSetting('perPage', Number(value)), 'Résultats par page'),
-  }));
-  search.append(settingRow({
-    name: 'Recherche approximative',
-    description: 'Si la recherche exacte échoue : nom simplifié, puis élargissement géographique — toujours signalé à l\'écran.',
-    control: switchControl(current.fuzzyFallback, (value) => handlers.onSetting('fuzzyFallback', value), 'Recherche approximative'),
-  }));
-  container.append(search);
-
-  const mapGroup = el('div', { class: 'setting-group' }, [el('h3', { text: 'Carte et imagerie' })]);
-  mapGroup.append(settingRow({
-    name: 'Fond de carte par défaut',
-    description: 'Le fond « Photo aérienne » est une véritable orthophotographie IGN.',
-    control: selectControl([
-      { value: 'osm', label: 'Plan OpenStreetMap' },
-      { value: 'planign', label: 'Plan IGN' },
-      { value: 'ortho', label: 'Photo aérienne IGN' },
-    ], current.defaultBaseLayer, (value) => handlers.onSetting('defaultBaseLayer', value), 'Fond de carte'),
-  }));
-  mapGroup.append(settingRow({
-    name: 'Ouvrir directement l\'onglet Images',
-    description: 'À l\'ouverture d\'une fiche, afficher la vue aérienne et les photos de rue plutôt que l\'onglet Voir toiture ou Parking.',
-    control: switchControl(current.autoOpenAerial, (value) => handlers.onSetting('autoOpenAerial', value), 'Ouvrir l\'onglet images'),
-  }));
-  mapGroup.append(settingRow({
-    name: 'Fournisseurs de photos de rue',
-    description: 'Panoramax ne demande aucun jeton. Mapillary nécessite un jeton gratuit.',
-    control: selectControl([
-      { value: 'both', label: 'Panoramax + Mapillary' },
-      { value: 'panoramax', label: 'Panoramax seul' },
-      { value: 'mapillary', label: 'Mapillary seul' },
-    ], current.streetProviders, (value) => handlers.onSetting('streetProviders', value), 'Fournisseurs de photos'),
-  }));
-  mapGroup.append(settingRow({
-    name: 'Rayon de recherche des photos',
-    description: 'Distance maximale entre les coordonnées de l\'établissement et la photographie.',
-    control: selectControl(config.imagery.streetRadiusOptions.map((value) => ({ value, label: `${value} m` })), current.streetRadiusM, (value) => handlers.onSetting('streetRadiusM', Number(value)), 'Rayon photos'),
-  }));
-  container.append(mapGroup);
-
-  const immersive = el('div', { class: 'setting-group' }, [el('h3', { text: 'Vue immersive — Street View 360°' })]);
-  immersive.append(settingRow({
-    name: 'Source immersive préférée',
-    description: 'Panoramax et Mapillary fonctionnent sans aucune clé. Google Street View nécessite une clé Google Cloud.',
-    control: selectControl([
-      { value: 'panoramax', label: 'Panoramax 360° (sans clé)' },
-      { value: 'mapillary', label: 'Mapillary 360° (sans clé)' },
-      { value: 'google', label: 'Google Street View (clé requise)' },
-    ], current.streetViewProvider, (value) => handlers.onSetting('streetViewProvider', value), 'Source immersive'),
-  }));
-  const googleReady = Boolean(googleStreetView?.configured);
-  immersive.append(el('div', { class: `notice notice-${googleReady ? 'info' : 'warning'}`, style: 'margin:0' }, [
-    icon(googleReady ? 'check' : 'info'),
-    el('span', {
-      text: googleReady
-        ? 'Google Street View est actif : la clé est chargée côté serveur et n\'apparaît jamais dans le JavaScript public.'
-        : 'Google Street View n\'est pas configuré. L\'API Maps Embed est gratuite et illimitée, mais Google exige un projet Cloud avec facturation activée. '
-          + 'Renseignez googleMapsEmbedKey dans server.config.json pour l\'activer. Sans cela, Panoramax fournit la vue immersive sans clé.',
-    }),
-  ]));
-  immersive.append(el('p', {
-    class: 'muted-xs',
-    style: 'margin-top:8px',
-    text: 'Confidentialité : aucun cadre externe n\'est chargé tant que vous n\'avez pas cliqué sur « Ouvrir la vue immersive ». '
-      + 'Le fournisseur ne reçoit donc aucune requête, et ne dépose aucun cookie, sans votre action.',
-  }));
-  container.append(immersive);
-
-  const mapillary = el('div', { class: 'setting-group' }, [el('h3', { text: 'Mapillary (jeton gratuit)' })]);
-  const mode = mapillaryAccess?.mode || 'none';
-  mapillary.append(el('div', { class: `notice notice-${mode === 'none' ? 'info' : 'warning'}`, style: 'margin:0 0 12px' }, [
-    icon(mode === 'none' ? 'info' : 'alert'),
-    el('span', { text: `Mode actuel : ${mode === 'proxy' ? 'proxy local sécurisé' : (mode === 'direct' ? 'jeton client exposé' : 'non configuré')}. ${mapillaryAccess?.detail || ''}` }),
-  ]));
-  mapillary.append(el('p', {
-    class: 'muted-xs',
-    text: 'Pour activer Mapillary sans exposer de secret : créez server.config.json dans le dossier de l’application, '
-      + 'puis lancez node server.js. Deux formes acceptées — « mapillaryToken » : "MLY|<client_id>|<client_secret>" '
-      + '(le « Client Token » complet), ou « mapillaryClientId » + « mapillaryClientSecret » : le serveur compose le jeton '
-      + 'lui-même. Un Client ID seul ne suffit pas : l’API répondrait 401. '
-      + 'Créer le fichier en une commande : node server.js --set-mapillary-token "MLY|…" ; '
-      + 'contrôle : node server.js --check-mapillary. '
-      + 'Jeton gratuit sur mapillary.com/dashboard/developers.',
-  }));
-  mapillary.append(el('p', { class: 'muted-xs', style: 'margin-top:8px' }, [
-    'Sans jeton, ', el('strong', { text: 'Panoramax' }), ' fournit déjà des photographies de rue libres (IGN et OpenStreetMap France), sans inscription.',
-  ]));
-  container.append(mapillary);
-
-  const about = el('div', { class: 'setting-group' }, [el('h3', { text: 'À propos' })]);
-  about.append(el('p', { class: 'muted-xs', text: `${config.app.name} ${config.app.version} — application locale, HTML/CSS/JavaScript sans framework. Leaflet 1.9.4 est servi localement. Aucune donnée personnelle n'est collectée, aucun compte n'est requis.` }));
-  about.append(el('button', {
-    type: 'button', class: 'btn btn-sm btn-outline', style: 'margin-top:12px', onclick: () => handlers.onResetSettings(),
-  }, [icon('reset'), 'Réinitialiser les paramètres']));
-  container.append(about);
+  container.innerHTML = items.map((item) => {
+    const title = item.kwh ? `${item.month} : ${formatIntFr(item.kwh)} kWh (estimé)` : item.letter;
+    const height = Math.max(12, Math.min(100, Number(item.heightPct) || 20));
+    return `<div class="elec-bar-col" title="${escapeHtml(title)}">
+      <div class="elec-bar-track">
+        <span class="elec-bar" style="height:${height}%"></span>
+      </div>
+      <span class="elec-bar-lbl">${escapeHtml(item.letter)}</span>
+    </div>`;
+  }).join('');
 }
 
 /* ==================================================================== */
-/* 6. Historique                                                         */
+/* 3. Logo société & commentaires CRM                                    */
 /* ==================================================================== */
 
-export function renderHistory(container, { tab, searches, views, favorites: saved, enabled }, handlers) {
-  clear(container);
+export function renderCompanyLogo({ imgEl, fallbackEl, name = '', logoUrl = '' }) {
+  const cleanLogo = safeUrl(logoUrl);
+  const root = String(name || '')
+    .trim()
+    .split(/[\s\-_/.,]+/)[0]
+    .toLowerCase()
+    .slice(0, 10);
 
-  const tabs = el('div', { class: 'history-tabs' });
-  [
-    { key: 'searches', label: `Recherches (${searches.length})` },
-    { key: 'views', label: `Fiches consultées (${views.length})` },
-    { key: 'favorites', label: `Fiches enregistrées (${saved.length})` },
-  ].forEach((item) => {
-    tabs.append(el('button', {
-      type: 'button', class: `chip${tab === item.key ? ' is-active' : ''}`, onclick: () => handlers.onHistoryTab(item.key),
-    }, item.label));
-  });
-  container.append(tabs);
+  const showFallback = () => {
+    if (imgEl) { imgEl.hidden = true; imgEl.removeAttribute('src'); }
+    if (fallbackEl) {
+      fallbackEl.hidden = false;
+      fallbackEl.innerHTML = root
+        ? `<span class="co-logo-dot"></span><span>${escapeHtml(root)}</span>`
+        : '—';
+    }
+  };
 
-  if (!enabled && tab !== 'favorites') {
-    container.append(el('div', { class: 'notice notice-info', style: 'margin:0 0 12px' }, [
-      icon('info'),
-      el('span', {}, [
-        'L\'historique est désactivé : aucune recherche n\'est mémorisée. ',
-        el('button', { type: 'button', class: 'btn btn-sm btn-outline', style: 'margin-left:8px', onclick: () => handlers.onEnableHistory() }, 'Activer l\'historique local'),
-      ]),
-    ]));
+  if (!cleanLogo || !imgEl) {
+    showFallback();
+    return;
   }
 
-  const list = el('div', { class: 'history-list' });
+  imgEl.onerror = showFallback;
+  imgEl.onload = () => {
+    if (fallbackEl) fallbackEl.hidden = true;
+    imgEl.hidden = false;
+  };
+  imgEl.alt = `Logo ${name}`;
+  imgEl.src = cleanLogo;
+}
 
-  if (tab === 'searches') {
-    if (!searches.length) {
-      list.append(mediaEmpty({ iconName: 'history', title: 'Aucune recherche mémorisée', message: enabled ? 'Vos prochaines recherches apparaîtront ici.' : 'Activez l\'historique pour conserver vos recherches sur cet appareil.' }));
-    }
-    searches.forEach((item) => {
-      const label = [item.criteria.nom, item.criteria.codePostal, item.criteria.ville, item.criteria.identifiant].filter(Boolean).join(' · ') || 'Recherche';
-      list.append(el('div', { class: 'history-row' }, [
-        el('div', { class: 'h-main' }, [
-          el('p', { class: 'h-title', text: label }),
-          el('p', { class: 'h-sub', text: `${formatDateTimeFr(item.at)} · ${item.totalResults} résultat(s)` }),
-        ]),
-        el('div', { class: 'h-actions' }, [
-          el('button', { type: 'button', class: 'btn btn-sm btn-outline', onclick: () => handlers.onReplaySearch(item) }, [icon('search'), 'Relancer']),
-          el('button', { type: 'button', class: 'icon-btn', title: 'Supprimer', onclick: () => handlers.onRemoveSearch(item) }, [icon('trash')]),
-        ]),
-      ]));
-    });
-    if (searches.length) {
-      list.append(el('button', { type: 'button', class: 'btn btn-sm btn-danger', onclick: () => handlers.onClearHistory('searches') }, [icon('trash'), 'Vider les recherches']));
-    }
+/** Formate un ISO en « 29/07/2026 11:52 ». */
+export function formatDateTimeCrm(iso, { withA = false } = {}) {
+  const date = iso ? new Date(iso) : new Date();
+  if (Number.isNaN(date.getTime())) return '—';
+  const pad = (n) => String(n).padStart(2, '0');
+  const d = `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()}`;
+  const t = `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return withA ? `${d} à ${t}` : `${d} ${t}`;
+}
+
+export function renderCommentsBox(container, comments = [], { expanded = false } = {}) {
+  if (!container) return;
+  if (!Array.isArray(comments) || !comments.length) {
+    container.innerHTML = '<p class="comment-empty">Aucun commentaire — cliquez sur « Historique commentaires » pour ajouter une note.</p>';
+    return;
   }
-
-  if (tab === 'views') {
-    if (!views.length) {
-      list.append(mediaEmpty({ iconName: 'building', title: 'Aucune fiche consultée', message: enabled ? 'Les fiches ouvertes apparaîtront ici.' : 'Activez l\'historique pour conserver la liste des fiches consultées.' }));
-    }
-    views.forEach((item) => {
-      list.append(el('div', { class: 'history-row' }, [
-        el('div', { class: 'h-main' }, [
-          el('p', { class: 'h-title', text: item.nom || item.siret }),
-          el('p', { class: 'h-sub', text: `${item.codePostal || ''} ${item.commune || ''} · SIRET ${formatSiret(item.siret)} · ${formatDateTimeFr(item.at)}` }),
-        ]),
-        el('div', { class: 'h-actions' }, [
-          el('button', { type: 'button', class: 'btn btn-sm btn-outline', onclick: () => handlers.onSelectSiret(item.siret) }, 'Ouvrir'),
-          el('button', { type: 'button', class: 'icon-btn', title: 'Supprimer', onclick: () => handlers.onRemoveView(item) }, [icon('trash')]),
-        ]),
-      ]));
-    });
-    if (views.length) {
-      list.append(el('button', { type: 'button', class: 'btn btn-sm btn-danger', onclick: () => handlers.onClearHistory('views') }, [icon('trash'), 'Vider les fiches consultées']));
-    }
-  }
-
-  if (tab === 'favorites') {
-    if (!saved.length) {
-      list.append(mediaEmpty({ iconName: 'star', title: 'Aucune fiche enregistrée', message: 'Cliquez sur l\'étoile dans une fiche pour la conserver sur cet appareil, même hors ligne.' }));
-    }
-    saved.forEach((item) => {
-      const e = item.etablissement;
-      list.append(el('div', { class: 'history-row' }, [
-        el('div', { class: 'h-main' }, [
-          el('p', { class: 'h-title', text: e.nomAffiche }),
-          el('p', { class: 'h-sub', text: `${e.codePostal || ''} ${e.commune || ''} · SIRET ${formatSiret(e.siret)} · enregistrée le ${formatDateFr(item.savedAt)}` }),
-        ]),
-        el('div', { class: 'h-actions' }, [
-          el('button', { type: 'button', class: 'btn btn-sm btn-outline', onclick: () => handlers.onOpenFavorite(item) }, 'Ouvrir'),
-          el('button', { type: 'button', class: 'icon-btn', title: 'Supprimer', onclick: () => handlers.onRemoveFavorite(e.siret) }, [icon('trash')]),
-        ]),
-      ]));
-    });
-    if (saved.length) {
-      list.append(el('button', { type: 'button', class: 'btn btn-sm btn-danger', onclick: () => handlers.onClearHistory('favorites') }, [icon('trash'), 'Supprimer toutes les fiches enregistrées']));
-    }
-  }
-
-  container.append(list);
+  const visible = expanded ? comments : comments.slice(0, 1);
+  container.innerHTML = visible.map((c) => `
+    <div class="comment-item">
+      <p class="comment-head"><span class="comment-chevron">›</span>${escapeHtml(formatDateTimeCrm(c.at))} - ${escapeHtml(c.author || 'hellodevis_28')}</p>
+      <p class="comment-text">${escapeHtml(c.text || '')}</p>
+    </div>
+  `).join('');
 }
 
 /* ==================================================================== */
-/* 7. État des services                                                  */
+/* 4. Liste déroulante des résultats de recherche                        */
 /* ==================================================================== */
 
-export function renderStatus(container, statuses) {
-  clear(container);
-  statuses.forEach((service) => {
-    const state = service.state;
-    const color = state === 'ok' ? '#22c55e' : (state === 'checking' ? '#2563eb' : (state === 'skipped' ? '#94a3b8' : '#ef4444'));
-    const label = state === 'ok' ? 'En ligne' : (state === 'checking' ? 'Test…' : (state === 'skipped' ? 'Non configuré' : 'Indisponible'));
-    container.append(el('li', {}, [
-      el('span', { class: 'status-dot', style: `background:${color};margin-top:6px` }),
-      el('div', {}, [
-        el('p', { class: 's-name', text: service.name }),
-        el('p', { class: 's-detail', text: service.detail || '' }),
-      ]),
-      el('span', { class: 's-state', style: `color:${color}`, text: label }),
-    ]));
-  });
+export function renderResultsDropdown(container, rows = [], selectedSiret = '', onPick = null) {
+  if (!container) return;
+  container.textContent = '';
+  if (!rows.length) {
+    container.hidden = true;
+    return;
+  }
+
+  for (const row of rows) {
+    const { etablissement, entreprise } = row;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `result-option${etablissement.siret === selectedSiret ? ' is-selected' : ''}`;
+    btn.setAttribute('role', 'option');
+    btn.setAttribute('aria-selected', etablissement.siret === selectedSiret ? 'true' : 'false');
+
+    const title = entreprise.raisonSociale || etablissement.nomAffiche || 'Établissement';
+    const statusText = etablissement.estActif ? 'Entreprise active' : 'Fermé';
+    const address = [etablissement.voie, [etablissement.codePostal, etablissement.commune].filter(Boolean).join(' ')]
+      .filter(Boolean).join(', ');
+
+    btn.innerHTML = `
+      <span class="result-option-top">
+        <span class="result-option-name">${escapeHtml(title)}</span>
+        <span class="result-option-badge${etablissement.estActif ? '' : ' is-closed'}">${escapeHtml(statusText)}</span>
+      </span>
+      <span class="result-option-sub">SIRET ${escapeHtml(etablissement.siret)} · ${escapeHtml(address || 'Adresse non renseignée')}</span>
+    `;
+    btn.addEventListener('click', () => onPick?.(etablissement.siret));
+    container.appendChild(btn);
+  }
 }
 
 /* ==================================================================== */
-/* 8. Modales & lightbox                                                 */
+/* 5. Contenus de modales (finances, électricité)                        */
 /* ==================================================================== */
 
-let lastFocused = null;
+export function buildFinancialModalHtml(fin, entreprise, etablissement) {
+  const financesRows = fin.finances.length
+    ? `<table class="modal-table">
+        <thead><tr><th>Exercice</th><th>Chiffre d'affaires</th><th>Résultat net</th></tr></thead>
+        <tbody>
+          ${fin.finances.map((f) => `<tr>
+            <td><strong>${escapeHtml(String(f.year))}</strong></td>
+            <td>${escapeHtml(f.ca != null ? formatEuroFr(f.ca) : 'Non communiqué')}</td>
+            <td>${escapeHtml(f.resultatNet != null ? formatEuroFr(f.resultatNet) : 'Non communiqué')}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>`
+    : '<p class="modal-note">Aucun bilan public détaillé n\'est publié par l\'INPI pour cette unité légale (comptes confidentiels ou non déposés).</p>';
 
-export function openModal(id) {
-  const modal = document.getElementById(id);
-  if (!modal) return;
-  lastFocused = document.activeElement;
+  const breakdownRows = fin.breakdown.map((b) => `
+    <tr><td>${escapeHtml(b.label)}</td><td>${escapeHtml(b.impact)}</td></tr>
+  `).join('');
+
+  const officialLink = safeUrl(etablissement?.sourceUrl || entreprise?.sourceUrl || '');
+  return `
+    <p><strong>Note estimée : ${fin.score} / 100</strong> — ${escapeHtml(fin.riskLabel)} (Solvabilité : ${escapeHtml(fin.solvency)}, Tendance : ${escapeHtml(fin.trend)} ${escapeHtml(fin.trendArrow)})</p>
+    <table class="modal-table">
+      <thead><tr><th>Critère analysé</th><th>Évaluation</th></tr></thead>
+      <tbody>${breakdownRows}</tbody>
+    </table>
+    ${financesRows}
+    <p class="modal-note">
+      Indicateur estimatif calculé à partir des données légales publiques (SIRENE / INPI).
+      Il ne remplace pas une cotation officielle Banque de France ou Altares.
+      ${officialLink ? `<br><a class="link-blue" href="${escapeHtml(officialLink)}" target="_blank" rel="noopener noreferrer">Consulter la fiche officielle sur l'Annuaire des Entreprises ↗</a>` : ''}
+    </p>
+  `;
+}
+
+export function buildElectricityModalHtml(elec, solar) {
+  const rows = elec.monthlySeries.map((m) => `
+    <tr>
+      <td>${escapeHtml(m.month)}</td>
+      <td><strong>${escapeHtml(formatIntFr(m.kwh))} kWh</strong></td>
+    </tr>
+  `).join('');
+
+  const solarLine = solar?.annualProdKwh
+    ? `<p class="modal-note"><strong>Potentiel photovoltaïque associé :</strong> environ <strong>${escapeHtml(formatIntFr(solar.installableKwc))} kWc</strong> installables (~ ${escapeHtml(formatIntFr(solar.annualProdKwh))} kWh/an, gisement ${escapeHtml(formatIntFr(solar.irradiationKwhM2))} kWh/m²/an).</p>`
+    : '';
+
+  return `
+    <p>
+      <strong>${escapeHtml(formatIntFr(elec.monthlyKwh))} kWh / mois</strong>
+      (${escapeHtml(formatIntFr(elec.annualKwh))} kWh / an) — secteur <em>${escapeHtml(elec.sectorLabel)}</em>,
+      base ~ ${escapeHtml(formatIntFr(elec.surfaceUsedM2))} m² × ${escapeHtml(String(elec.intensityKwhM2))} kWh/m²/an.
+    </p>
+    <table class="modal-table">
+      <thead><tr><th>Mois</th><th>Consommation estimée</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    ${solarLine}
+    <p class="modal-note">Estimation statistique fondée sur le code NAF, l'emprise bâtie et la zone climatique (référentiels Enedis Open Data / secteur tertiaire &amp; activité). À confirmer avec les factures ou le PDL Enedis du client.</p>
+  `;
+}
+
+/* ==================================================================== */
+/* 6. Modale générique & Toasts                                          */
+/* ==================================================================== */
+
+let modalCleanup = null;
+
+export function openModal({ title, html = '', wide = false, onMount = null, onClose = null }) {
+  const modal = document.getElementById('crm-modal');
+  const dialog = document.getElementById('crm-modal-dialog');
+  const titleEl = document.getElementById('crm-modal-title');
+  const bodyEl = document.getElementById('crm-modal-body');
+  if (!modal || !dialog || !titleEl || !bodyEl) return;
+
+  if (modalCleanup) { try { modalCleanup(); } catch { /* ignore */ } modalCleanup = null; }
+  titleEl.textContent = title || 'Détail';
+  dialog.classList.toggle('is-wide', Boolean(wide));
+  bodyEl.innerHTML = html;
   modal.hidden = false;
-  document.body.style.overflow = 'hidden';
-  const focusable = modal.querySelector('button, [href], input, select, textarea');
-  focusable?.focus();
+  modalCleanup = onClose || null;
+  onMount?.(bodyEl);
 }
 
-export function closeModal(id) {
-  const modal = document.getElementById(id);
+export function closeModal() {
+  const modal = document.getElementById('crm-modal');
+  const bodyEl = document.getElementById('crm-modal-body');
   if (!modal || modal.hidden) return;
+  if (modalCleanup) { try { modalCleanup(); } catch { /* ignore */ } modalCleanup = null; }
   modal.hidden = true;
-  if (!document.querySelector('.modal:not([hidden]), .lightbox:not([hidden])')) document.body.style.overflow = '';
-  lastFocused?.focus?.();
+  if (bodyEl) bodyEl.textContent = '';
 }
 
-const lightboxState = { photos: [], index: 0 };
-
-export function openLightbox(photos, index = 0) {
-  lightboxState.photos = photos;
-  lightboxState.index = index;
-  const box = document.getElementById('lightbox');
-  box.hidden = false;
-  document.body.style.overflow = 'hidden';
-  updateLightbox();
-  document.getElementById('lightbox-prev')?.focus();
-}
-
-export function closeLightbox() {
-  const box = document.getElementById('lightbox');
-  if (!box || box.hidden) return;
-  box.hidden = true;
-  const image = document.getElementById('lightbox-img');
-  image.src = '';
-  if (!document.querySelector('.modal:not([hidden])')) document.body.style.overflow = '';
-}
-
-export function moveLightbox(delta) {
-  const total = lightboxState.photos.length;
-  if (!total) return;
-  lightboxState.index = (lightboxState.index + delta + total) % total;
-  updateLightbox();
-}
-
-function updateLightbox() {
-  const photo = lightboxState.photos[lightboxState.index];
-  if (!photo) return;
-  const image = document.getElementById('lightbox-img');
-  image.src = photo.fullUrl || photo.thumbUrl;
-  image.alt = `Photographie ${lightboxState.index + 1} sur ${lightboxState.photos.length} — ${photo.providerName}`;
-  const caption = document.getElementById('lightbox-caption');
-  clear(caption);
-  caption.append(el('p', {
-    text: `${photo.providerName} · ${photo.capturedAt ? formatDateFr(photo.capturedAt) : 'date inconnue'} · ${photo.author || 'auteur inconnu'} · ${photo.licence || 'licence non renseignée'}${photo.distanceM != null ? ` · à ${photo.distanceM} m` : ''}`,
-  }));
-  if (safeUrl(photo.pageUrl)) {
-    caption.append(el('p', {}, [el('a', { href: safeUrl(photo.pageUrl), target: '_blank', rel: 'noopener noreferrer', text: 'Voir la photographie sur le site source ↗' })]));
-  }
-  caption.append(el('p', { class: 'muted-xs', text: `${lightboxState.index + 1} / ${lightboxState.photos.length}` }));
-  document.getElementById('lightbox-prev').disabled = lightboxState.photos.length < 2;
-  document.getElementById('lightbox-next').disabled = lightboxState.photos.length < 2;
-}
-
-/** Fermetures globales (backdrops, croix, Échap, flèches du clavier). */
-export function initUi() {
-  document.addEventListener('click', (event) => {
-    const closer = event.target.closest?.('[data-close]');
-    if (closer) {
-      const id = closer.dataset.close;
-      if (id === 'lightbox') closeLightbox();
-      else if (id === 'status-panel') {
-        document.getElementById('status-panel').hidden = true;
-        document.getElementById('btn-status')?.setAttribute('aria-expanded', 'false');
-      } else closeModal(id);
-    }
-  });
-
-  document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') {
-      if (!document.getElementById('lightbox').hidden) { closeLightbox(); return; }
-      const openModalNode = document.querySelector('.modal:not([hidden])');
-      if (openModalNode) { closeModal(openModalNode.id); return; }
-      const panel = document.getElementById('status-panel');
-      if (panel && !panel.hidden) { panel.hidden = true; return; }
-      const fullscreen = document.querySelector('.map-card.is-fullscreen');
-      if (fullscreen) document.getElementById('btn-fullscreen')?.click();
-    }
-    if (!document.getElementById('lightbox').hidden) {
-      if (event.key === 'ArrowLeft') moveLightbox(-1);
-      if (event.key === 'ArrowRight') moveLightbox(1);
-    }
-  });
-
-  document.getElementById('lightbox-prev')?.addEventListener('click', () => moveLightbox(-1));
-  document.getElementById('lightbox-next')?.addEventListener('click', () => moveLightbox(1));
+export function toast(message, tone = 'info') {
+  const host = document.getElementById('toasts');
+  if (!host || !message) return;
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.dataset.tone = tone;
+  el.textContent = message;
+  host.appendChild(el);
+  setTimeout(() => { el.remove(); }, 3200);
 }

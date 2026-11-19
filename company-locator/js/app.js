@@ -1,1195 +1,1645 @@
 /**
- * app.js — Point d'entrée et orchestration de Company Locator France.
+ * app.js — Orchestrateur de la Fiche Entreprise CRM.
  *
- * Responsabilité : câbler l'interface aux modules métier, gérer l'état
- * courant (recherche, sélection, fiche, images), le routage par ancre,
- * les paramètres, l'historique et l'état des services.
- *
- * Aucune requête HTTP directe ici : tout passe par entreprise-api.js,
- * geocoding.js et images.js. Aucun rendu DOM complexe ici : voir ui.js.
+ * Charge une entreprise française depuis l'API officielle Recherche d'entreprises,
+ * résout ses coordonnées GPS (BAN / Géoplateforme IGN), affiche la carte plan,
+ * l'orthophotographie IGN BD ORTHO®, la vue de rue Panoramax/Mapillary, la météo
+ * actuelle Open-Meteo, l'altitude, l'emprise bâtie BD TOPO®, la note financière
+ * estimée, la consommation d'électricité estimée et les 5 indicateurs de site,
+ * tout en persistant localement les saisies CRM par SIRET.
  */
 
 import config from './config.js';
-import { AppError, ERR, toUserMessage, debounce, formatCoords, isPlausibleFranceCoords } from './utils.js';
-import { loadLabels } from './labels.js';
-import * as api from './entreprise-api.js';
-import { resolvePosition, ping as pingGeocoding } from './geocoding.js';
-import { runSearch, summarize, validateCriteria, readCriteria, sortRows } from './search.js';
-import * as mapModule from './map.js';
-import * as images from './images.js';
-import * as streetview from './streetview.js';
-import { detectProxy, transportLabel, proxyState } from './transport.js';
-import * as exporter from './export.js';
-import * as ui from './ui.js';
-import { createSiteMap } from './site-map.js';
-import { createWeatherView } from './weather-view.js';
 import {
-  settings, history, favorites, userContacts, storageInfo, purgeCache, purgeUserData,
-} from './storage.js';
-import { createEmbedBridge, selectionPayload } from './embed.js';
+  digitsOnly, isValidCodePostal, isValidSiren, isValidSiret,
+  escapeHtml, safeUrl, toUserMessage,
+} from './utils.js';
+import { loadLabels, nafCompactWithLabel, normalizeEffectifOption } from './labels.js';
+import { fetchBySiret } from './entreprise-api.js';
+import { runSearch } from './search.js';
+import { resolvePosition } from './geocoding.js';
+import { createPlanMap, createSatelliteMap, createExpandedMap } from './map.js';
+import { fetchStreetPhotos, pickStreetPhotoIndex, streetPhotoView, bearingDeg } from './images.js';
+import { fetchSiteSource, fetchAltitude } from './site-data.js';
+import {
+  fetchWeather, weatherDescription, weatherIconKind, windCardinalFr, formatWeatherTimestamp,
+} from './weather-data.js';
+import {
+  normalizePhoneFr, isMobileFr, formatPhoneFr, formatPhoneDots, phoneHref, isValidEmail, buildContactRecord,
+} from './contact.js';
+import { crmSheets, defaultQuoteId, userContacts, uiPrefs } from './storage.js';
+import { createEmbedBridge } from './embed.js';
+import {
+  formatCreationMonthFr, formatCoordCardinal, formatLocationLine, formatIntFr, titleCaseFr,
+  googleEarthUrl, googleStreetViewUrl, mapDirigeantToBuyer, inferEntityType,
+  computeBuildingSurface, computeSolarPotential, computeSeaDistance,
+  computeAccessibility, computeEnvironment, computeFinancialScore, computeElectricityEstimate,
+} from './enrichment.js';
+import {
+  weatherSvg, renderElectricityChart, renderCompanyLogo, formatDateTimeCrm,
+  renderCommentsBox, renderResultsDropdown, buildFinancialModalHtml, buildElectricityModalHtml,
+  openModal, closeModal, toast,
+} from './ui.js';
 
-/* ==================================================================== */
-/* 1. État applicatif                                                    */
-/* ==================================================================== */
+const $ = (id) => document.getElementById(id);
 
 const state = {
-  criteria: null,
-  result: null,
   rows: [],
-  page: 1,
-  selectedSiret: null,
-  fiche: null,
-  positions: new Map(),
-  street: { loading: false, photos: [], sources: [], error: null },
-  // 4e vue de la carte : image de rue de l'établissement sélectionné.
-  mapStreet: { active: false, loading: false, photos: [], index: 0, target: null, error: null },
-  // D. Vue immersive : rien n'est chargé tant que `loaded` reste faux.
-  streetview: { providerKey: null, loaded: false, heading: 0, photoIndex: 0 },
-  googleStreetView: { configured: false, checked: false, message: '' },
-  map: null,
-  aerial: null,
-  siteMap: null,
-  weatherView: null,
-  searchAbort: null,
-  historyTab: 'searches',
-  mapillaryAccess: { mode: 'none', detail: '' },
-  statuses: [],
-  // Mode intégré : dernier SIRET transmis au formulaire parent.
-  embedSentSiret: null,
+  current: null, // { etablissement, entreprise }
+  position: null,
+  altitudeM: null,
+  buildingGeojson: null,
+  building: null,
+  solar: null,
+  finance: null,
+  electricity: null,
+  streetPhotos: [],
+  streetIndex: 0,
+  commentsExpanded: false,
+  planMap: null,
+  satMap: null,
+  activeController: null,
+  embed: null,
 };
 
-const dom = {};
-/** Pont iframe ↔ formulaire : inactif hors mode `?embed=1`. */
-const embed = createEmbedBridge(typeof window === 'undefined' ? { document: null } : window);
-
-function cacheDom() {
-  const ids = [
-    'search-form', 'champ-nom', 'champ-cp', 'champ-ville', 'champ-adresse', 'champ-identifiant', 'champ-etat',
-    'btn-search', 'btn-reset', 'form-error', 'results-list', 'results-summary', 'results-notice', 'results-status',
-    'embed-bar', 'embed-bar-title', 'embed-bar-sub', 'btn-embed-select',
-    'pagination', 'champ-tri', 'btn-export-results', 'btn-export-geojson', 'detail-card', 'map', 'map-card',
-    'map-overlay', 'map-readout', 'map-credits', 'btn-recenter', 'btn-copy-gps', 'btn-fullscreen', 'workspace',
-    'map-street', 'map-street-prev', 'map-street-next', 'map-street-close',
-    'btn-status', 'status-panel', 'status-list', 'btn-recheck', 'btn-settings', 'modal-settings', 'settings-body',
-    'btn-history', 'modal-history', 'history-body', 'btn-export-favorites', 'viewbar-count', 'villes-suggestions',
-    'boot-error', 'advanced-search',
-  ];
-  ids.forEach((id) => { dom[id] = document.getElementById(id); });
-  dom.viewbarButtons = [...document.querySelectorAll('.viewbar-btn')];
-  dom.baselayerButtons = [...document.querySelectorAll('[data-baselayer]')];
-  dom.examples = [...document.querySelectorAll('.chip-example')];
-}
-
 /* ==================================================================== */
-/* 2. Utilitaires d'interface                                            */
+/* 1. Analyse intelligente de la barre de recherche                      */
 /* ==================================================================== */
 
-function setFormError(message, errors = {}) {
-  const node = dom['form-error'];
-  if (!message) {
-    node.hidden = true;
-    node.textContent = '';
+function parseSearchInput(rawQuery, rawLocation) {
+  const q = String(rawQuery ?? '').trim();
+  const loc = String(rawLocation ?? '').trim();
+  const qDigits = digitsOnly(q);
+  const looksNumericOnly = /^[\d\s.\-]+$/.test(q) && qDigits.length > 0;
+
+  const criteria = { nom: '', codePostal: '', ville: '', adresse: '', identifiant: '' };
+
+  if (looksNumericOnly && (qDigits.length === 9 || qDigits.length === 14)) {
+    criteria.identifiant = qDigits;
+  } else if (looksNumericOnly && qDigits.length === 5 && isValidCodePostal(q)) {
+    criteria.codePostal = q.toUpperCase();
   } else {
-    node.hidden = false;
-    node.textContent = message;
+    criteria.nom = q;
   }
-  const mapping = { codePostal: 'champ-cp', identifiant: 'champ-identifiant', nom: 'champ-nom' };
-  Object.entries(mapping).forEach(([key, id]) => {
-    dom[id]?.setAttribute('aria-invalid', String(Boolean(errors[key])));
-  });
+
+  if (loc) {
+    const locClean = loc.replace(/\s+/g, '').toUpperCase();
+    if (isValidCodePostal(locClean)) criteria.codePostal = locClean;
+    else criteria.ville = loc;
+  }
+
+  return criteria;
 }
 
-function setView(view) {
-  dom.workspace.dataset.view = view;
-  dom.viewbarButtons.forEach((button) => {
-    const active = button.dataset.view === view;
-    button.classList.toggle('is-active', active);
-    button.setAttribute('aria-selected', String(active));
-  });
-  if (view === 'map') setTimeout(() => state.map?.invalidate(), 80);
-  if (view === 'detail' && state.fiche?.activeTab === 'meteo') setTimeout(() => state.weatherView?.invalidate(), 80);
-  if (view === 'detail' && state.fiche?.activeTab === 'toiture') setTimeout(() => state.siteMap?.invalidate(), 80);
-  if (view === 'detail' && state.fiche?.activeTab === 'images') setTimeout(() => state.aerial?.invalidate(), 80);
+function setSearchStatus(message, tone = 'info') {
+  const el = $('search-status');
+  if (el) {
+    el.textContent = message || '';
+    el.dataset.tone = tone;
+  }
+  const embedStatus = $('embed-status-text');
+  if (embedStatus) embedStatus.textContent = message || '';
 }
 
-function readForm() {
-  return readCriteria({
-    nom: dom['champ-nom'].value,
-    codePostal: dom['champ-cp'].value,
-    ville: dom['champ-ville'].value,
-    adresse: dom['champ-adresse'].value,
-    identifiant: dom['champ-identifiant'].value,
-  });
-}
-
-function writeForm(criteria = {}) {
-  dom['champ-nom'].value = criteria.nom || '';
-  dom['champ-cp'].value = criteria.codePostal || '';
-  dom['champ-ville'].value = criteria.ville || '';
-  dom['champ-adresse'].value = criteria.adresse || '';
-  dom['champ-identifiant'].value = criteria.identifiant || '';
-  if (criteria.adresse || criteria.identifiant) dom['advanced-search'].open = true;
-}
-
-function updateCitySuggestions(rows) {
-  const list = dom['villes-suggestions'];
-  if (!list) return;
-  const cities = [...new Set(rows.map((row) => row.etablissement.commune).filter(Boolean))].sort().slice(0, 30);
-  list.replaceChildren(...cities.map((city) => {
-    const option = document.createElement('option');
-    option.value = city;
-    return option;
-  }));
+function setSearchCollapsed(collapsed, { persist = true } = {}) {
+  if (state.embed?.active) return;
+  const bar = $('search-toolbar');
+  const showBtn = $('btn-show-search');
+  if (bar) bar.hidden = Boolean(collapsed);
+  if (showBtn) showBtn.hidden = !collapsed;
+  if (persist) uiPrefs.set({ searchCollapsed: Boolean(collapsed) });
+  setTimeout(() => {
+    state.planMap?.invalidate();
+    state.satMap?.invalidate();
+  }, 40);
 }
 
 /* ==================================================================== */
-/* 3. Recherche                                                          */
+/* 2. Recherche & sélection d'un établissement                           */
 /* ==================================================================== */
 
-async function doSearch({ page = 1, criteria = null } = {}) {
-  const input = criteria || readForm();
-  const validation = validateCriteria(input);
-  if (!validation.valid) {
-    setFormError(validation.message, validation.errors);
-    return;
-  }
-  setFormError('');
-
-  state.searchAbort?.abort();
-  const controller = new AbortController();
-  state.searchAbort = controller;
-
-  const current = settings.get();
-  dom['btn-search'].classList.add('is-busy');
-  dom['btn-search'].disabled = true;
-  ui.renderResultsSkeleton(dom['results-list']);
-  dom['results-summary'].textContent = 'Recherche en cours…';
-  ui.renderNotices(dom['results-notice'], []);
-  dom.pagination.hidden = true;
+async function executeSearch(criteria, { silent = false } = {}) {
+  setSearchStatus('Recherche en cours…');
+  const searchBtn = $('btn-search');
+  if (searchBtn) searchBtn.disabled = true;
 
   try {
-    const result = await runSearch(input, {
-      page,
-      perPage: current.perPage,
-      etat: dom['champ-etat'].value,
-      sort: current.sort,
-      fuzzy: current.fuzzyFallback,
-      signal: controller.signal,
+    const result = await runSearch(criteria, {
+      perPage: config.search.perPage,
+      etat: 'tous',
+      sort: 'pertinence',
+      fuzzyFallback: true,
     });
 
-    state.criteria = result.criteria;
-    state.result = result;
-    state.rows = result.rows;
-    state.page = result.page;
+    state.rows = result.rows || [];
+    updateResultsUI();
+    state.embed?.notifyResults(state.rows);
 
-    renderResultsView();
-    history.addSearch({ criteria: result.criteria, totalResults: result.totalResults });
-    updateCitySuggestions(result.rows);
-    if (embed.active) embed.notifyResults(result.rows);
-
-    if (result.rows.length === 1) {
-      await selectEtablissement(result.rows[0].etablissement.siret, { auto: true });
+    if (!state.rows.length) {
+      setSearchStatus('Aucun établissement trouvé.', 'error');
+      if (!silent) toast('Aucun établissement trouvé pour cette recherche.', 'error');
+      return false;
     }
+
+    const count = state.rows.length;
+    setSearchStatus(count > 1 ? `${count} établissements trouvés` : '');
+    await selectRow(state.rows[0]);
+    return true;
   } catch (error) {
-    if (error instanceof AppError && error.code === ERR.ABORTED) return;
-    const message = toUserMessage(error);
-    state.rows = [];
-    state.result = null;
-    dom['results-list'].replaceChildren();
-    dom['results-list'].append(ui.emptyState({
-      iconName: error instanceof AppError && error.code === ERR.INVALID_INPUT ? 'alert' : 'search',
-      title: error instanceof AppError && error.code === ERR.INVALID_INPUT ? 'Critères à corriger' : 'Recherche impossible',
-      message,
-      action: error instanceof AppError && error.retryable
-        ? Object.assign(document.createElement('button'), {
-          type: 'button', className: 'btn btn-sm btn-outline', textContent: 'Réessayer', onclick: () => doSearch({ page, criteria: input }),
-        })
-        : null,
-    }));
-    dom['results-summary'].textContent = 'Aucun résultat.';
-    dom['results-status'].textContent = message;
-    dom['btn-export-results'].disabled = true;
-    dom['btn-export-geojson'].disabled = true;
-    dom['viewbar-count'].textContent = '0';
-    state.map?.setRows([]);
-    if (error instanceof AppError && error.code === ERR.INVALID_INPUT) setFormError(message, error.details || {});
-    if (embed.active) embed.notifyError(message);
+    const msg = toUserMessage(error);
+    if (!silent) {
+      setSearchStatus(msg, 'error');
+      state.embed?.notifyError(msg);
+    } else {
+      setSearchStatus('');
+    }
+    return false;
   } finally {
-    dom['btn-search'].classList.remove('is-busy');
-    dom['btn-search'].disabled = false;
+    if (searchBtn) searchBtn.disabled = false;
   }
 }
 
-/**
- * Mode intégré : la barre du bas confirme l'entreprise choisie et la renvoie
- * au formulaire parent. Hors iframe, elle reste masquée.
- */
-function updateEmbedBar(fiche = state.fiche) {
-  if (!embed.active || !dom['embed-bar']) return;
-  dom['embed-bar'].hidden = false;
-  const payload = fiche ? selectionPayload(fiche) : null;
-  const hasCompany = Boolean(payload && payload.siret);
-  dom['embed-bar-title'].textContent = hasCompany
-    ? (payload.nom || 'Établissement sélectionné')
-    : 'Aucune entreprise sélectionnée';
-  dom['embed-bar-sub'].textContent = hasCompany
-    ? [payload.adresseComplete, payload.siret ? `SIRET ${payload.siret}` : ''].filter(Boolean).join(' · ')
-    : 'Choisissez votre établissement dans la liste des résultats, puis cliquez sur « Utiliser cette entreprise ».';
-  dom['btn-embed-select'].disabled = !hasCompany;
-  dom['btn-embed-select'].classList.toggle('is-sent', Boolean(hasCompany && state.embedSentSiret === payload.siret));
-  dom['btn-embed-select'].textContent = hasCompany && state.embedSentSiret === payload.siret
-    ? 'Entreprise transmise ✓'
-    : 'Utiliser cette entreprise';
+async function loadBySiret(siret, { silent = false } = {}) {
+  const id = digitsOnly(siret);
+  if (!isValidSiret(id)) return false;
+  if (!silent) setSearchStatus('Chargement de la fiche…');
+  try {
+    const { row, entreprise } = await fetchBySiret(id);
+    const chosen = row || (entreprise?.etablissements?.[0]
+      ? { etablissement: entreprise.etablissements[0], entreprise }
+      : null);
+    if (!chosen) {
+      if (!silent) setSearchStatus('SIRET introuvable.', 'error');
+      return false;
+    }
+    state.rows = entreprise?.etablissements?.length
+      ? entreprise.etablissements.map((etab) => ({ etablissement: etab, entreprise }))
+      : [chosen];
+    updateResultsUI();
+    setSearchStatus('');
+    await selectRow(chosen);
+    return true;
+  } catch (error) {
+    if (!silent) setSearchStatus(toUserMessage(error), 'error');
+    else setSearchStatus('');
+    return false;
+  }
 }
 
-function renderResultsView() {
-  const { rows, result } = state;
-  if (!rows.length) {
-    dom['results-list'].replaceChildren();
-    dom['results-list'].append(ui.emptyState({
-      iconName: 'search',
-      title: 'Aucune entreprise trouvée',
-      message: 'Aucun établissement ne correspond à ces critères. Vérifiez l\'orthographe, élargissez le code postal, ou basculez le filtre d\'état sur « Tous ».',
-    }));
-  } else {
-    ui.renderResults(dom['results-list'], {
-      rows,
-      selectedSiret: state.selectedSiret,
-      onSelect: (siret) => selectEtablissement(siret),
-      handlers: { onCopy: async (value, label) => {
-        const { copyText } = await import('./utils.js');
-        const ok = await copyText(value);
-        ui.toast(ok ? `Copié : ${label}` : 'Copie impossible sur ce navigateur', ok ? 'success' : 'error');
-      } },
-    });
+function updateResultsUI() {
+  const toggle = $('btn-results-toggle');
+  const countLabel = $('results-count-label');
+  const dropdown = $('results-dropdown');
+  const selectedSiret = state.current?.etablissement?.siret || '';
+
+  if (toggle && countLabel) {
+    const show = state.rows.length > 1;
+    toggle.hidden = !show;
+    countLabel.textContent = `${state.rows.length} résultats`;
+    if (!show && dropdown) {
+      dropdown.hidden = true;
+      toggle.setAttribute('aria-expanded', 'false');
+    }
   }
 
-  dom['results-summary'].textContent = result ? summarize(result) : 'Aucune recherche effectuée.';
-  dom['results-status'].textContent = dom['results-summary'].textContent;
-  dom['viewbar-count'].textContent = String(rows.length);
-  ui.renderNotices(dom['results-notice'], result?.notices || []);
-  ui.renderPagination(dom.pagination, {
-    page: state.page,
-    totalPages: result?.totalPages || 0,
-    onPage: (page) => doSearch({ page, criteria: state.criteria }),
+  renderResultsDropdown(dropdown, state.rows, selectedSiret, (siret) => {
+    const found = state.rows.find((r) => r.etablissement.siret === siret);
+    if (dropdown) dropdown.hidden = true;
+    $('btn-results-toggle')?.setAttribute('aria-expanded', 'false');
+    if (found) selectRow(found);
   });
 
-  dom['btn-export-results'].disabled = rows.length === 0;
-  dom['btn-export-geojson'].disabled = rows.length === 0;
-
-  state.map?.setRows(rows);
-  state.map?.fitAll();
+  // Mode intégré (?embed=1)
+  if (state.embed?.active) {
+    const picker = $('embed-picker');
+    const select = $('embed-select-row');
+    if (picker && select) {
+      picker.hidden = state.rows.length <= 1;
+      select.innerHTML = state.rows.map((r) => {
+        const e = r.etablissement;
+        const label = `${r.entreprise.raisonSociale || e.nomAffiche} — ${e.codePostal || ''} ${e.commune || ''} (${e.siret})`;
+        const sel = e.siret === selectedSiret ? ' selected' : '';
+        return `<option value="${escapeHtml(e.siret)}"${sel}>${escapeHtml(label)}</option>`;
+      }).join('');
+    }
+  }
 }
 
 /* ==================================================================== */
-/* 4. Sélection d'un établissement et fiche                              */
+/* 3. Remplissage complet de la fiche CRM                                */
 /* ==================================================================== */
 
-async function selectEtablissement(siret, options = {}) {
-  if (!siret) return;
-  let row = state.rows.find((item) => item.etablissement.siret === siret);
+function getEffectiveSheet(row) {
+  const { etablissement, entreprise } = row;
+  const saved = crmSheets.get(etablissement.siret) || {};
+  const savedContact = userContacts.get(etablissement.siret) || {};
+  const defaultBuyer = mapDirigeantToBuyer(entreprise.dirigeants);
 
-  if (!row) {
-    // Lien profond, historique ou fiche enregistrée : on recharge depuis l'API.
-    try {
-      dom['results-summary'].textContent = 'Chargement de l\'établissement…';
-      const fetched = await api.fetchBySiret(siret);
-      row = fetched.row;
-      if (!row) {
-        ui.toast('Établissement introuvable dans l\'API officielle.', 'error');
-        return;
-      }
-    } catch (error) {
-      ui.toast(toUserMessage(error), 'error');
-      return;
-    }
-  }
-
-  state.selectedSiret = siret;
-  destroyAerial();
-  destroySiteMap();
-  destroyWeatherView();
-  const current = settings.get();
-  state.fiche = {
-    row,
-    position: state.positions.get(siret) || null,
-    positionLoading: !state.positions.has(siret),
-    positionError: null,
-    // Coordonnées de contact : saisies par l'utilisateur, stockées localement.
-    contacts: userContacts.get(siret),
-    activeTab: current.autoOpenAerial ? 'images' : 'toiture',
-    isFavorite: favorites.has(siret),
-    apiUrl: `https://recherche-entreprises.api.gouv.fr/search?q=${row.etablissement.siret}`,
-  };
-  state.street = { loading: false, photos: [], sources: [], error: null };
-  // Nouvelle fiche : on referme toute vue immersive précédente (elle pointait
-  // sur un autre bâtiment) et on repart de la source préférée.
-  state.streetview = { providerKey: null, loaded: false, heading: config.streetView.heading, photoIndex: 0 };
-
-  ui.renderDetail(dom['detail-card'], state.fiche, detailHandlers());
-  ui.setActiveTab(dom['detail-card'], state.fiche.activeTab);
-
-  state.map?.select(siret, { position: state.fiche.position, pan: true, openPopup: !options.fromMap });
-  dom['btn-copy-gps'].disabled = !state.fiche.position;
-  // La vue de rue éventuellement ouverte suit l'établissement consulté.
-  if (state.mapStreet.active) openMapStreet({ force: true });
-  dom['btn-copy-gps'].dataset.siret = siret;
-
-  document.querySelectorAll('.result-item').forEach((item) => {
-    item.classList.toggle('is-selected', item.dataset.siret === siret);
-  });
-
-  history.addView({
-    siret,
-    siren: row.entreprise.siren,
-    nom: row.etablissement.nomAffiche,
-    commune: row.etablissement.commune,
-    codePostal: row.etablissement.codePostal,
-  });
-
-  if (embed.active) updateEmbedBar(state.fiche);
-  if (!options.auto) setView('detail');
-  if (window.location.hash !== `#/etablissement/${siret}`) {
-    window.history.replaceState(null, '', `#/etablissement/${siret}`);
-  }
-
-  if (state.fiche.activeTab === 'images') showImagesTab();
-  if (state.fiche.activeTab === 'toiture') showSiteTab();
-  if (!state.fiche.position) await computePosition(row);
-}
-
-async function computePosition(row) {
-  const siret = row.etablissement.siret;
-  try {
-    // On géocode toujours l'adresse propre de l'établissement : l'adresse
-    // saisie dans le formulaire ne sert qu'au classement des résultats.
-    const position = await resolvePosition(row.etablissement);
-    if (state.selectedSiret !== siret) {
-      state.positions.set(siret, position);
-      return;
-    }
-    state.positions.set(siret, position);
-    state.fiche.position = position;
-    state.fiche.positionLoading = false;
-    state.fiche.positionError = null;
-    state.map?.upsertPosition(row, position);
-    state.map?.select(siret, { position, pan: true, openPopup: false });
-    dom['btn-copy-gps'].disabled = false;
-  } catch (error) {
-    if (state.selectedSiret !== siret) return;
-    state.fiche.positionLoading = false;
-    state.fiche.positionError = toUserMessage(error);
-    dom['btn-copy-gps'].disabled = true;
-  }
-  if (state.fiche.activeTab === 'images') showImagesTab();
-  if (state.siteMap && state.fiche.position) state.siteMap.setPosition?.(state.fiche.position);
-  if (state.fiche.activeTab === 'toiture') showSiteTab();
-  if (state.fiche.activeTab === 'meteo') showWeatherTab();
-}
-
-function destroyWeatherView() {
-  state.weatherView?.destroy();
-  state.weatherView = null;
-}
-
-function showWeatherTab() {
-  if (!state.fiche || !ui.detailRefs.weatherHost) return;
-  const host = ui.detailRefs.weatherHost;
-  if (!state.fiche.position) {
-    host.textContent = state.fiche.positionLoading ? 'Recherche des coordonnées en cours…' : 'Coordonnées indisponibles : impossible de consulter la météo et les images pour cette fiche.';
-    return;
-  }
-  if (!state.weatherView) state.weatherView = createWeatherView(host, state.fiche.position, settings.get());
-  setTimeout(() => state.weatherView?.invalidate(), 80);
-}
-
-function destroySiteMap() {
-  state.siteMap?.destroy();
-  state.siteMap = null;
-}
-
-function showSiteTab() {
-  if (!state.fiche) return;
-  if (!state.siteMap && ui.detailRefs.siteHost) state.siteMap = createSiteMap(ui.detailRefs.siteHost, state.fiche.position);
-  setTimeout(() => state.siteMap?.invalidate(), 80);
-}
-
-function destroyAerial() {
-  if (state.aerial) {
-    try { state.aerial.destroy(); } catch { /* carte déjà retirée */ }
-    state.aerial = null;
-  }
-}
-
-/* ---------------------------- Onglet images ------------------------- */
-
-async function showImagesTab() {
-  const fiche = state.fiche;
-  if (!fiche) return;
-
-  // A. Vue aérienne
-  destroyAerial();
-  const node = ui.renderAerialPlaceholder(fiche, detailHandlers());
-  if (node && fiche.position) {
-    try {
-      state.aerial = await mapModule.createAerialMap({
-        container: node,
-        position: fiche.position,
-        zoom: config.imagery.aerialZoom,
-        onTileStatus: (status) => {
-          if (!status.ok) {
-            destroyAerial();
-            ui.renderAerialError('Les tuiles BD ORTHO® de l\'IGN n\'ont pas pu être chargées pour cette zone.');
-          }
-        },
-      });
-      state.aerial.map.on('zoomend', () => {
-        if (ui.detailRefs.aerialZoomNote) ui.detailRefs.aerialZoomNote.textContent = `Zoom ${state.aerial.getZoom()}`;
-      });
-      setTimeout(() => state.aerial?.invalidate(), 120);
-    } catch (error) {
-      ui.renderAerialError(toUserMessage(error));
-    }
-  }
-
-  // B. Photos de rue
-  if (!fiche.position) {
-    ui.renderStreetPhotos({ loading: false, photos: [], sources: [], radiusM: settings.get().streetRadiusM, error: 'Aucune coordonnée disponible : la recherche de photographies de rue est impossible.' }, detailHandlers());
-    renderStreetViewSection();
-    return;
-  }
-  if (!state.street.photos.length && !state.street.error) await loadStreetPhotos();
-  else {
-    ui.renderStreetPhotos({ ...state.street, radiusM: settings.get().streetRadiusM }, detailHandlers());
-    renderStreetViewSection();
-  }
-}
-
-/**
- * D. Vue immersive. Recalcule les sources disponibles puis rend la section.
- * Aucun iframe n'est créé ici : seul un clic utilisateur déclenche le chargement.
- */
-function renderStreetViewSection() {
-  const fiche = state.fiche;
-  if (!fiche) return;
-  const providers = streetview.availableProviders({
-    photos: state.street.photos,
-    position: fiche.position,
-    googleConfigured: state.googleStreetView.configured,
-  });
-
-  const view = state.streetview;
-  let selected = providers.find((provider) => provider.key === view.providerKey && provider.status === 'ready') || null;
-  if (!selected) {
-    const best = streetview.pickProvider(providers, settings.get().streetViewProvider || config.streetView.preferredProvider);
-    selected = best;
-    view.providerKey = best?.key || null;
-    view.photoIndex = 0;
-    view.loaded = false;
-  }
-  if (selected && view.photoIndex >= (selected.photos?.length || 0)) view.photoIndex = 0;
-
-  ui.renderStreetView({
-    providers,
-    selected,
-    loaded: view.loaded,
-    heading: view.heading,
-    photoIndex: view.photoIndex,
-    position: fiche.position,
-  }, detailHandlers());
-}
-
-/** URL du cadre, reconstruite à chaque rendu (orientation, photo choisie). */
-function streetViewUrl() {
-  const fiche = state.fiche;
-  const view = state.streetview;
-  if (!fiche || !view.providerKey) return null;
-  const providers = streetview.availableProviders({
-    photos: state.street.photos,
-    position: fiche.position,
-    googleConfigured: state.googleStreetView.configured,
-  });
-  const selected = providers.find((provider) => provider.key === view.providerKey);
-  if (!selected || selected.status !== 'ready') return null;
-  const photo = selected.photos?.[view.photoIndex] || selected.photo || null;
-  return streetview.embedUrlFor(view.providerKey, {
-    photo,
-    position: fiche.position,
-    heading: view.heading,
-    pitch: config.streetView.pitch,
-    fov: config.streetView.fov,
-  });
-}
-
-async function loadStreetPhotos() {
-  const fiche = state.fiche;
-  if (!fiche?.position) return;
-  const current = settings.get();
-  const siret = fiche.row.etablissement.siret;
-  state.street = { loading: true, photos: [], sources: [], error: null };
-  ui.renderStreetPhotos({ ...state.street, radiusM: current.streetRadiusM }, detailHandlers());
-
-  try {
-    const result = await images.fetchStreetPhotos({
-      lat: fiche.position.lat,
-      lon: fiche.position.lon,
-      radiusM: current.streetRadiusM,
-      providers: current.streetProviders,
-      limit: config.imagery.maxStreetPhotos,
-    });
-    if (state.selectedSiret !== siret) return;
-    state.street = { loading: false, photos: result.photos, sources: result.sources, error: null };
-  } catch (error) {
-    if (state.selectedSiret !== siret) return;
-    state.street = { loading: false, photos: [], sources: [], error: toUserMessage(error) };
-  }
-  ui.renderStreetPhotos({ ...state.street, radiusM: current.streetRadiusM }, detailHandlers());
-  renderStreetViewSection();
-}
-
-/* ------------------------ Callbacks de la fiche --------------------- */
-
-function detailHandlers() {
   return {
-    onToggleFavorite: () => {
-      const siret = state.fiche.row.etablissement.siret;
-      if (favorites.has(siret)) {
-        favorites.remove(siret);
-        state.fiche.isFavorite = false;
-        ui.toast('Fiche retirée des enregistrements.', 'info');
-      } else {
-        favorites.save({
-          etablissement: state.fiche.row.etablissement,
-          entreprise: state.fiche.row.entreprise,
-          position: state.fiche.position,
-        });
-        state.fiche.isFavorite = true;
-        ui.toast('Fiche enregistrée sur cet appareil.', 'success');
-      }
-      const button = dom['detail-card'].querySelector('.detail-head .icon-btn');
-      button.classList.toggle('is-active', state.fiche.isFavorite);
-      const label = state.fiche.isFavorite ? 'Retirer des fiches enregistrées' : 'Enregistrer cette fiche';
-      button.title = label;
-      button.setAttribute('aria-label', label);
+    logoUrl: saved.logoUrl || '',
+    effectif: saved.effectif !== undefined
+      ? saved.effectif
+      : normalizeEffectifOption(etablissement.trancheEffectif || entreprise.trancheEffectif),
+    entityType: saved.entityType || inferEntityType(entreprise),
+    website: saved.website || '',
+    telStandard: saved.telStandard ?? savedContact.telephone ?? '',
+    civilite: saved.civilite || defaultBuyer.civilite || 'Monsieur',
+    prenom: saved.prenom !== undefined ? saved.prenom : defaultBuyer.prenom,
+    nom: saved.nom !== undefined ? saved.nom : defaultBuyer.nom,
+    fonction: saved.fonction !== undefined ? saved.fonction : defaultBuyer.fonction,
+    email: saved.email !== undefined ? saved.email : (savedContact.email || ''),
+    mobile: saved.mobile !== undefined ? saved.mobile : (savedContact.mobile || ''),
+    manualSurfaceM2: saved.manualSurfaceM2 ?? null,
+    quote: {
+      id: saved.quote?.id || defaultQuoteId(etablissement.siret),
+      createdAt: saved.quote?.createdAt || new Date().toISOString(),
+      category: saved.quote?.category || 'Solutions photovoltaïques',
+      segment: saved.quote?.segment || 'FSI Installateurs',
+      origin: saved.quote?.origin || 'Demande Hellodevis',
+      advisor: saved.quote?.advisor || 'hellodevis_28',
+      criteria: saved.quote?.criteria || 'Installation photovoltaïque sur toiture / ombrière professionnelle — étude d\'autoconsommation.',
+      callNote: saved.quote?.callNote || '',
+      bimpStatus: saved.quote?.bimpStatus || 'En cours de qualification',
+      bimpNote: saved.quote?.bimpNote || '',
     },
-    onTabChange: (tab) => {
-      state.fiche.activeTab = tab;
-      ui.setActiveTab(dom['detail-card'], tab);
-      refreshCurrentTab();
-    },
-    onAerialZoom: (delta) => {
-      if (!state.aerial) return;
-      state.aerial.setZoom(state.aerial.getZoom() + delta);
-    },
-    onAerialRecenter: () => state.aerial?.recenter(),
-    onRadiusChange: (radius) => {
-      settings.set({ streetRadiusM: radius });
-      loadStreetPhotos();
-    },
-    onReloadPhotos: () => loadStreetPhotos(),
-
-    /* D. Vue immersive — chargement strictement sur clic. */
-    resolveUrl: () => streetViewUrl(),
-    onSelectProvider: (key) => {
-      state.streetview.providerKey = key;
-      state.streetview.photoIndex = 0;
-      state.streetview.loaded = false; // changer de source ne charge rien tout seul
-      renderStreetViewSection();
-    },
-    onLoadEmbed: () => {
-      state.streetview.loaded = true;
-      renderStreetViewSection();
-    },
-    onCloseEmbed: () => {
-      state.streetview.loaded = false;
-      renderStreetViewSection();
-    },
-    onHeadingChange: (degrees) => {
-      state.streetview.heading = streetview.normalizeHeading(degrees);
-      renderStreetViewSection();
-    },
-    onPhotoChange: (index) => {
-      state.streetview.photoIndex = Math.max(0, index);
-      renderStreetViewSection();
-    },
-    onOpenPhoto: (photo) => {
-      const all = state.street.photos;
-      const index = all.findIndex((item) => item.id === photo.id);
-      ui.openLightbox(all, Math.max(0, index));
-    },
-
+    comments: Array.isArray(saved.comments) ? saved.comments : [],
+    qualifications: Array.isArray(saved.qualifications) ? saved.qualifications : [],
+    quoteHistory: Array.isArray(saved.quoteHistory) ? saved.quoteHistory : [],
+    rac: saved.rac || { status: '', date: '', note: '' },
+    prelead: saved.prelead || { owner: 'Propriétaire', delay: '3 à 6 mois', budget: '' },
+    leadgen: saved.leadgen || { channel: 'Hellodevis Web', max: '4' },
   };
 }
 
-function refreshCurrentTab() {
-  const tab = state.fiche?.activeTab;
-  if (tab === 'images') showImagesTab();
-  if (tab === 'toiture') showSiteTab();
-  if (tab === 'meteo') showWeatherTab();
+/** Synchronise les coordonnées saisies vers `userContacts` (utilisé par ?embed=1). */
+function syncContactStore(siret) {
+  if (!siret) return;
+  const sheet = crmSheets.get(siret) || {};
+  const fullName = [sheet.prenom, sheet.nom].filter(Boolean).join(' ').trim();
+  const std = normalizePhoneFr(sheet.telStandard || '');
+  const dir = normalizePhoneFr(sheet.mobile || '');
+  let telephone = '';
+  let mobile = '';
+  if (std) {
+    if (isMobileFr(std)) mobile = std;
+    else telephone = std;
+  }
+  if (dir) {
+    if (isMobileFr(dir)) mobile = dir;
+    else if (!telephone) telephone = dir;
+  }
+  const email = isValidEmail(sheet.email || '') ? sheet.email : '';
+  const record = buildContactRecord({ telephone, mobile, email, contact: fullName });
+  if (record) userContacts.save(siret, record);
+  else userContacts.remove(siret);
 }
 
-/* ==================================================================== */
-/* 5. Paramètres, historique, état des services                          */
-/* ==================================================================== */
+async function selectRow(row) {
+  if (!row?.etablissement) return;
 
-function openSettings() {
-  ui.renderSettings(dom['settings-body'], {
-    settings: settings.get(),
-    info: storageInfo(),
-    mapillaryAccess: state.mapillaryAccess,
-    googleStreetView: state.googleStreetView,
-    transport: { label: transportLabel(), ...proxyState() },
-  }, {
-    onSetting: (key, value) => {
-      settings.set({ [key]: value });
-      if (key === 'defaultBaseLayer') applyBaseLayer(value);
-      if (key === 'perPage' && state.criteria) doSearch({ page: 1, criteria: state.criteria });
-      if (key === 'streetRadiusM' && state.fiche?.activeTab === 'images') loadStreetPhotos();
-      openSettings();
-      ui.toast('Paramètre enregistré.', 'success', 1600);
-    },
-    onPurgeCache: () => {
-      purgeCache();
-      api.clearEntrepriseCache();
-      ui.toast('Cache des API vidé.', 'success');
-      openSettings();
-    },
-    onPurgeData: () => {
-      if (!window.confirm('Effacer l\'historique, les fiches enregistrées, les photos ajoutées et le cache de cet appareil ?')) return;
-      purgeUserData();
-      ui.toast('Données locales effacées.', 'success');
-      openSettings();
-    },
-    onResetSettings: () => {
-      settings.reset();
-      applyBaseLayer(settings.get().defaultBaseLayer);
-      ui.toast('Paramètres réinitialisés.', 'success');
-      openSettings();
-    },
-  });
-  ui.openModal('modal-settings');
-}
+  state.activeController?.abort();
+  const controller = new AbortController();
+  state.activeController = controller;
+  const { signal } = controller;
 
-function openHistory(tab = state.historyTab) {
-  state.historyTab = tab;
-  ui.renderHistory(dom['history-body'], {
-    tab,
-    searches: history.listSearches(),
-    views: history.listViews(),
-    favorites: favorites.list(),
-    enabled: history.isEnabled(),
-  }, {
-    onHistoryTab: (key) => openHistory(key),
-    onEnableHistory: () => {
-      settings.set({ historyEnabled: true });
-      ui.toast('Historique local activé.', 'success');
-      openHistory(tab);
-    },
-    onReplaySearch: (item) => {
-      ui.closeModal('modal-history');
-      writeForm(item.criteria);
-      doSearch({ page: 1, criteria: item.criteria });
-    },
-    onRemoveSearch: (item) => { history.removeSearch(item.signature); openHistory(tab); },
-    onRemoveView: (item) => { history.removeView(item.siret); openHistory(tab); },
-    onSelectSiret: (siret) => { ui.closeModal('modal-history'); selectEtablissement(siret); },
-    onOpenFavorite: (item) => {
-      ui.closeModal('modal-history');
-      if (item.position) state.positions.set(item.etablissement.siret, item.position);
-      const existing = state.rows.find((row) => row.etablissement.siret === item.etablissement.siret);
-      if (!existing) state.rows = [{ etablissement: item.etablissement, entreprise: item.entreprise }, ...state.rows];
-      selectEtablissement(item.etablissement.siret);
-    },
-    onRemoveFavorite: (siret) => { favorites.remove(siret); openHistory(tab); },
-    onClearHistory: (kind) => {
-      const labels = { searches: 'les recherches', views: 'les fiches consultées', favorites: 'les fiches enregistrées' };
-      if (!window.confirm(`Supprimer ${labels[kind]} de cet appareil ?`)) return;
-      if (kind === 'searches') history.clearSearches();
-      if (kind === 'views') history.clearViews();
-      if (kind === 'favorites') favorites.clear();
-      ui.toast('Suppression effectuée.', 'success');
-      openHistory(tab);
-    },
-  });
-  ui.openModal('modal-history');
-}
+  state.current = row;
+  state.position = null;
+  state.altitudeM = null;
+  state.buildingGeojson = null;
+  state.streetPhotos = [];
+  state.streetIndex = 0;
+  state.commentsExpanded = false;
 
-async function checkServices() {
-  state.statuses = [
-    { key: 'entreprises', name: 'API Recherche d\'entreprises', state: 'checking', detail: 'Test d\'une requête réelle…' },
-    { key: 'geocoding', name: 'Géocodage BAN / Géoplateforme IGN', state: 'checking', detail: 'Test d\'une adresse réelle…' },
-    { key: 'ortho', name: 'Photographie aérienne IGN (BD ORTHO®)', state: 'checking', detail: 'Chargement d\'une tuile…' },
-    { key: 'panoramax', name: 'Photographies de rue Panoramax', state: 'checking', detail: 'Recherche test…' },
-    { key: 'mapillary', name: 'Photographies de rue Mapillary', state: 'checking', detail: 'Détection du jeton…' },
-  ];
-  ui.renderStatus(dom['status-list'], state.statuses);
-  const transportNode = document.getElementById('status-transport');
-  if (transportNode) transportNode.textContent = transportLabel();
-  updateStatusPill();
-
-  const update = (key, patch) => {
-    const item = state.statuses.find((service) => service.key === key);
-    if (item) Object.assign(item, patch);
-    ui.renderStatus(dom['status-list'], state.statuses);
-    updateStatusPill();
-  };
-
-  await Promise.allSettled([
-    api.ping().then(
-      (result) => update('entreprises', { state: 'ok', detail: `Réponse en ${result.latencyMs} ms — aucune clé requise.` }),
-      (error) => update('entreprises', { state: 'ko', detail: toUserMessage(error) }),
-    ),
-    pingGeocoding().then(
-      (result) => update('geocoding', { state: 'ok', detail: `Adresse test géocodée en ${result.latencyMs} ms.` }),
-      (error) => update('geocoding', { state: 'ko', detail: toUserMessage(error) }),
-    ),
-    mapModule.pingTiles('ortho').then(
-      (result) => update('ortho', result.ok
-        ? { state: 'ok', detail: `Tuile BD ORTHO® chargée en ${result.latencyMs} ms.` }
-        : { state: 'ko', detail: `Tuile non chargée (${result.reason}).` }),
-    ),
-    images.pingPanoramax().then(
-      (result) => update('panoramax', { state: 'ok', detail: `${result.detail} en ${result.latencyMs} ms — sans jeton.` }),
-      (error) => update('panoramax', { state: 'ko', detail: toUserMessage(error) }),
-    ),
-    images.pingMapillary().then(
-      (result) => update('mapillary', result.skipped
-        ? { state: 'skipped', detail: result.detail }
-        : { state: 'ok', detail: result.detail }),
-      (error) => update('mapillary', { state: 'ko', detail: toUserMessage(error) }),
-    ),
-  ]);
-}
-
-function updateStatusPill() {
-  const core = state.statuses.filter((service) => ['entreprises', 'geocoding'].includes(service.key));
-  const done = core.filter((service) => service.state !== 'checking');
-  const okCount = core.filter((service) => service.state === 'ok').length;
-  const dot = dom['btn-status'].querySelector('.status-dot');
-  const label = dom['btn-status'].querySelector('.status-label');
-  if (done.length < core.length) {
-    dot.dataset.state = 'checking';
-    label.textContent = 'Vérification des API…';
-    return;
-  }
-  if (okCount === core.length) {
-    dot.dataset.state = 'ok';
-    label.textContent = 'API opérationnelles';
-  } else if (okCount > 0) {
-    dot.dataset.state = 'partial';
-    label.textContent = 'Service partiellement disponible';
-  } else {
-    dot.dataset.state = 'ko';
-    label.textContent = 'API injoignables';
-  }
-}
-
-/* ------------------- 4e vue : Street View sur la carte ------------- */
-
-const MAP_STREET_KEY = 'street';
-
-/** Point et libellé de la vue de rue : fiche ouverte, sinon sélection, sinon centre. */
-function mapStreetTarget() {
-  const fiche = state.fiche;
-  if (fiche?.position) {
-    const e = fiche.row.etablissement;
-    return {
-      siret: e.siret,
-      lat: Number(fiche.position.lat),
-      lon: Number(fiche.position.lon),
-      label: [e.nomAffiche, e.adresse].filter(Boolean).join(' — '),
-    };
-  }
-  const siret = state.map?.getSelected();
-  const row = siret ? state.rows.find((r) => r.etablissement.siret === siret) : null;
-  if (row) {
-    const known = state.positions.get(siret);
-    const lat = Number(known?.lat ?? row.etablissement.latitude);
-    const lon = Number(known?.lon ?? row.etablissement.longitude);
-    if (isPlausibleFranceCoords(lat, lon)) {
-      return {
-        siret,
-        lat,
-        lon,
-        label: [row.etablissement.nomAffiche, row.etablissement.adresse].filter(Boolean).join(' — '),
-      };
-    }
-  }
-  const center = state.map?.getCenter();
-  if (center && isPlausibleFranceCoords(center.lat, center.lon)) {
-    return { siret: null, lat: center.lat, lon: center.lon, label: 'Centre de la carte' };
-  }
-  return null;
-}
-
-function renderMapStreet() {
-  const { loading, photos, index, target, error } = state.mapStreet;
-  let status = 'loading';
-  let message = 'Recherche d’une image de rue autour de ce point…';
-  let photo = null;
-  if (!loading) {
-    if (error) {
-      status = 'error';
-      message = error;
-    } else if (!photos.length) {
-      status = 'empty';
-      message = 'Aucune photographie de rue n’est disponible pour ce point. Élargissez le rayon de recherche dans les paramètres, déplacez la carte, ou revenez au plan.';
-    } else {
-      photo = images.streetPhotoView(photos[index], {
-        index, total: photos.length, target: target ? { lat: target.lat, lon: target.lon } : null,
-      });
-      if (photo) {
-        status = 'ready';
-      } else {
-        status = 'empty';
-        message = 'La photographie reçue n’est pas affichable (URL non sûre ou absente). Aucune image de substitution n’est utilisée.';
-      }
-    }
-  }
-  ui.renderMapStreet(dom['map-street'], {
-    status, photo, message, label: target?.label || '',
-  });
-  renderMapStreetCredits(status, photo);
-}
-
-/**
- * Le pied de carte reste visible sous la vue de rue : il doit donc décrire
- * l'image réellement affichée, jamais un fond de plan absent.
- */
-function renderMapStreetCredits(status, photo) {
-  const node = dom['map-credits'];
-  if (!node) return;
-  if (status === 'ready' && photo) {
-    node.textContent = `Vue de rue — ${photo.credit || 'crédit non fourni par la source'}`;
-  } else if (status === 'loading') {
-    node.textContent = 'Vue de rue — recherche de la photographie…';
-  } else {
-    node.textContent = 'Vue de rue — aucune photographie affichée (pas d’image de substitution).';
-  }
-}
-
-async function openMapStreet({ force = false } = {}) {
-  const target = mapStreetTarget();
-  if (state.mapStreet.creditsBackup == null && dom['map-credits']) {
-    state.mapStreet.creditsBackup = dom['map-credits'].textContent;
-  }
-  state.mapStreet = { ...state.mapStreet, active: true, seq: (state.mapStreet.seq || 0) + 1 };
-  const seq = state.mapStreet.seq;
-  dom.baselayerButtons.forEach((button) => {
-    button.classList.toggle('is-active', button.dataset.baselayer === MAP_STREET_KEY);
-  });
-  dom['map-street'].hidden = false;
-
-  if (!target) {
-    state.mapStreet = {
-      ...state.mapStreet,
-      active: true,
-      loading: false,
-      photos: [],
-      index: 0,
-      target: null,
-      error: 'Sélectionnez un établissement — ou déplacez la carte sur l’adresse — pour afficher sa vue de rue.',
-    };
-    renderMapStreet();
-    return;
+  const { etablissement, entreprise } = row;
+  if (!state.embed?.active) {
+    uiPrefs.set({ lastSiret: etablissement.siret });
+    try { window.history.replaceState(null, '', `#siret=${etablissement.siret}`); } catch { /* ignore */ }
   }
 
-  const same = state.mapStreet.target
-    && state.mapStreet.target.lat === target.lat
-    && state.mapStreet.target.lon === target.lon;
-  if (!force && same && (state.mapStreet.photos.length || state.mapStreet.error)) {
-    renderMapStreet();
-    return;
-  }
+  updateResultsUI();
+  renderCompanyAndBuyer(row);
+  renderFinanceCard(row);
+  updateEmbedBar();
 
-  state.mapStreet = { ...state.mapStreet, active: true, loading: true, photos: [], index: 0, target, error: null };
-  renderMapStreet();
+  // Réinitialise les zones dépendantes du GPS pendant le chargement
+  const cityTitle = titleCaseFr(etablissement.commune || '');
+  $('weather-title').textContent = cityTitle
+    ? `Météo actuelle à ${cityTitle}${etablissement.codePostal ? ` (${etablissement.codePostal})` : ''}`
+    : 'Météo actuelle';
+  $('weather-icon').innerHTML = weatherSvg('partly-cloudy');
+  $('weather-temp').textContent = '…';
+  $('weather-desc').textContent = 'Chargement…';
+  $('weather-wind').textContent = '—';
+  $('weather-humidity').textContent = '—';
+  $('weather-precip').textContent = '—';
+  $('weather-updated').textContent = '—';
+  $('loc-address').textContent = formatLocationLine(etablissement);
+  $('loc-coords').textContent = 'Localisation…';
+  $('loc-altitude').textContent = 'Altitude : …';
+  resetStreetCard('Recherche d\'une vue de rue…');
 
-  const current = settings.get();
+  // Calcul initial immédiat de la surface et de l'électricité avant retour BD TOPO
+  recomputeSiteAndEnergy({ lat: etablissement.latitude, lon: etablissement.longitude });
+
+  // 1. Géocodage précis (BAN + SIRENE)
+  let position = null;
   try {
-    const result = await images.fetchStreetPhotos({
-      lat: target.lat,
-      lon: target.lon,
-      radiusM: current.streetRadiusM,
-      providers: current.streetProviders,
-      limit: config.imagery.maxStreetPhotos,
-    });
-    if (!state.mapStreet.active || state.mapStreet.seq !== seq) return;
-    // On démarre sur la photographie qui montre le mieux l'immeuble.
-    const startIndex = images.pickStreetPhotoIndex(result.photos, target);
-    state.mapStreet = {
-      ...state.mapStreet, loading: false, photos: result.photos, index: startIndex, error: null,
-    };
-  } catch (error) {
-    if (!state.mapStreet.active || state.mapStreet.seq !== seq) return;
-    state.mapStreet = { ...state.mapStreet, loading: false, photos: [], error: toUserMessage(error) };
+    position = await resolvePosition(etablissement, { signal });
+  } catch {
+    if (signal.aborted) return;
+    if (Number.isFinite(etablissement.latitude) && Number.isFinite(etablissement.longitude)) {
+      position = { lat: etablissement.latitude, lon: etablissement.longitude, precision: 'sirene', source: 'SIRENE' };
+    }
   }
-  renderMapStreet();
-}
+  if (signal.aborted) return;
 
-function closeMapStreet() {
-  state.mapStreet = { ...state.mapStreet, active: false };
-  if (dom['map-street']) dom['map-street'].hidden = true;
-  if (dom['map-credits'] && state.mapStreet.creditsBackup != null) {
-    dom['map-credits'].textContent = state.mapStreet.creditsBackup;
-  }
-  state.mapStreet.creditsBackup = null;
-}
+  state.position = position;
+  updateEmbedBar();
 
-function stepMapStreet(delta) {
-  const total = state.mapStreet.photos.length;
-  if (!total) return;
-  state.mapStreet.index = (state.mapStreet.index + delta + total) % total;
-  renderMapStreet();
-}
-
-function applyBaseLayer(key) {
-  // « Street View » n'est pas un fond de tuiles : c'est une image de rue
-  // superposée à la carte, centrée sur l'établissement affiché.
-  if (key === MAP_STREET_KEY) {
-    openMapStreet();
+  if (!position) {
+    $('loc-coords').textContent = 'Coordonnées indisponibles';
+    $('loc-altitude').textContent = 'Altitude : —';
+    $('weather-temp').textContent = '—';
+    $('weather-desc').textContent = 'Indisponible';
+    resetStreetCard('Coordonnées GPS indisponibles');
+    setExternalLink($('btn-google-earth'), '');
+    setExternalLink($('btn-street-view'), '');
+    state.planMap?.clear();
+    state.satMap?.clear();
     return;
   }
-  closeMapStreet();
-  const applied = state.map?.setBaseLayer(key);
-  dom.baselayerButtons.forEach((button) => button.classList.toggle('is-active', button.dataset.baselayer === applied));
+
+  const { lat, lon } = position;
+  $('loc-coords').textContent = formatCoordCardinal(lat, lon, 4);
+  setExternalLink($('btn-google-earth'), googleEarthUrl(lat, lon, 50));
+  setExternalLink($('btn-street-view'), googleStreetViewUrl(lat, lon));
+
+  const displayName = entreprise.raisonSociale || etablissement.nomAffiche;
+  state.planMap?.setPoint(lat, lon, { zoom: config.map.planZoom, label: displayName });
+  $('sat-empty').hidden = true;
+  state.satMap?.setPoint(lat, lon, { zoom: config.map.aerialZoom });
+
+  // Mise à jour immédiate des KPI géographiques (mer, accessibilité, solaire, environnement)
+  recomputeSiteAndEnergy({ lat, lon });
+
+  // 2. Enrichissements parallèles : Météo + Altitude + Emprise BD TOPO + Vue de la rue
+  loadWeatherAndAltitude(lat, lon, signal);
+  loadBuildingFootprint(lat, lon, signal);
+  loadStreetView(lat, lon, signal);
 }
 
-/* ==================================================================== */
-/* 6. Câblage des événements                                             */
-/* ==================================================================== */
+function setExternalLink(anchor, url) {
+  if (!anchor) return;
+  const clean = safeUrl(url);
+  if (clean) {
+    anchor.href = clean;
+    anchor.classList.remove('is-disabled');
+    anchor.removeAttribute('aria-disabled');
+  } else {
+    anchor.href = '#';
+    anchor.classList.add('is-disabled');
+    anchor.setAttribute('aria-disabled', 'true');
+  }
+}
 
-function wireEvents() {
-  if (embed.active && dom['btn-embed-select']) {
-    dom['btn-embed-select'].addEventListener('click', () => {
-      if (!state.fiche) return;
-      const payload = selectionPayload(state.fiche);
-      if (!payload.siret) return;
-      if (embed.notifySelection(state.fiche)) {
-        state.embedSentSiret = payload.siret;
-        updateEmbedBar(state.fiche);
-        ui.toast('Entreprise transmise au formulaire.', 'success');
-      } else {
-        ui.toast('Le formulaire parent n\'a pas pu être joint. Ouvrez le localisateur dans un onglet.', 'error');
-      }
-    });
+function renderCompanyAndBuyer(row) {
+  const { etablissement, entreprise } = row;
+  const sheet = getEffectiveSheet(row);
+
+  const mainName = (entreprise.raisonSociale || entreprise.nomComplet || etablissement.nomAffiche || 'ENTREPRISE').toUpperCase();
+  const subName = (etablissement.enseignes?.[0] || etablissement.nomCommercial || entreprise.sigle || '').toUpperCase();
+
+  $('co-name').textContent = mainName;
+  const ensEl = $('co-enseigne');
+  if (subName && subName !== mainName) {
+    ensEl.textContent = subName;
+    ensEl.hidden = false;
+  } else {
+    ensEl.textContent = '';
+    ensEl.hidden = true;
   }
 
-  dom['search-form'].addEventListener('submit', (event) => {
-    event.preventDefault();
-    doSearch({ page: 1 });
+  $('co-street').textContent = (etablissement.voie || etablissement.adresse || '—').toUpperCase();
+  $('co-city').textContent = [etablissement.codePostal, etablissement.commune].filter(Boolean).join(' ').toUpperCase() || '—';
+  $('co-country').textContent = (etablissement.pays || 'FRANCE').toUpperCase();
+
+  const statusEl = $('co-status');
+  if (etablissement.etatAdministratif === 'A') {
+    statusEl.textContent = 'Entreprise active';
+    statusEl.dataset.state = 'active';
+  } else if (etablissement.etatAdministratif === 'C') {
+    statusEl.textContent = 'Entreprise fermée';
+    statusEl.dataset.state = 'closed';
+  } else {
+    statusEl.textContent = 'État inconnu';
+    statusEl.dataset.state = 'neutral';
+  }
+
+  renderCompanyLogo({
+    imgEl: $('co-logo-img'),
+    fallbackEl: $('co-logo-fallback'),
+    name: mainName,
+    logoUrl: sheet.logoUrl,
   });
 
-  dom['search-form'].addEventListener('reset', () => {
-    setTimeout(() => {
-      setFormError('');
-      state.rows = [];
-      state.result = null;
-      state.criteria = null;
-      state.selectedSiret = null;
-      state.fiche = null;
-      state.positions.clear();
-      destroyAerial();
-      destroySiteMap();
-      destroyWeatherView();
-      dom['detail-card'].hidden = true;
-      dom['results-list'].replaceChildren();
-      dom['results-list'].append(ui.emptyState({
-        iconName: 'search',
-        title: 'Nouvelle recherche',
-        message: 'Saisissez un nom, un code postal, une ville ou un SIREN/SIRET. Les données proviennent de l\'API officielle Recherche d\'entreprises.',
-      }));
-      dom['results-summary'].textContent = 'Aucune recherche effectuée.';
-      dom['viewbar-count'].textContent = '0';
-      dom['btn-export-results'].disabled = true;
-      dom['btn-export-geojson'].disabled = true;
-      dom.pagination.hidden = true;
-      ui.renderNotices(dom['results-notice'], []);
-      state.map?.setRows([]);
-      state.map?.fitAll();
-      window.history.replaceState(null, '', window.location.pathname + window.location.search);
-      setView('results');
-    }, 0);
+  $('co-siret').textContent = etablissement.siret || '—';
+  $('btn-copy-siret').disabled = !etablissement.siret;
+
+  renderTelStandard(sheet.telStandard);
+  $('tel-standard-editor').hidden = true;
+
+  $('co-naf').textContent = `NAF  ${nafCompactWithLabel(etablissement.naf || entreprise.naf)}`;
+  $('co-created').textContent = formatCreationMonthFr(entreprise.dateCreation || etablissement.dateCreation);
+
+  $('co-effectif').value = sheet.effectif;
+  $('co-type').value = sheet.entityType;
+  $('co-website').value = sheet.website;
+
+  // Acheteur
+  $('buyer-civilite').value = sheet.civilite;
+  $('buyer-prenom').value = sheet.prenom;
+  $('buyer-nom').value = sheet.nom;
+  $('buyer-fonction').value = sheet.fonction;
+  $('buyer-email').value = sheet.email;
+  renderBuyerMobile(sheet.mobile);
+  $('mobile-editor').hidden = true;
+
+  // Commentaires
+  renderCommentsSection(sheet.comments);
+
+  // Demande de devis
+  renderQuoteSection(sheet.quote);
+
+  // Accordéons RAC / Prelead / Génération de lead
+  $('rac-status').value = sheet.rac.status || '';
+  $('rac-date').value = sheet.rac.date || '';
+  $('rac-note').value = sheet.rac.note || '';
+  $('prelead-owner').value = sheet.prelead.owner || 'Propriétaire';
+  $('prelead-delay').value = sheet.prelead.delay || '3 à 6 mois';
+  $('prelead-budget').value = sheet.prelead.budget || '';
+  $('leadgen-channel').value = sheet.leadgen.channel || 'Hellodevis Web';
+  $('leadgen-max').value = sheet.leadgen.max || '4';
+
+  document.title = `${mainName} — Fiche Entreprise`;
+}
+
+function renderTelStandard(phone) {
+  const link = $('co-tel-link');
+  const href = phoneHref(phone);
+  if (phone && href) {
+    link.textContent = formatPhoneDots(phone);
+    link.href = href;
+    link.hidden = false;
+  } else {
+    link.textContent = '';
+    link.hidden = true;
+  }
+}
+
+function renderBuyerMobile(mobile) {
+  const link = $('buyer-mobile-link');
+  const hint = $('btn-add-mobile-hint');
+  const href = phoneHref(mobile);
+  if (mobile && href) {
+    link.textContent = formatPhoneDots(mobile);
+    link.href = href;
+    link.hidden = false;
+    hint.hidden = true;
+  } else {
+    link.textContent = '';
+    link.hidden = true;
+    hint.hidden = false;
+  }
+}
+
+function renderCommentsSection(comments) {
+  renderCommentsBox($('comments-box'), comments, { expanded: state.commentsExpanded });
+  const moreLabel = $('comments-more-label');
+  if (moreLabel) {
+    moreLabel.textContent = state.commentsExpanded && comments.length > 1 ? 'Voir moins' : 'Voir plus';
+  }
+}
+
+function renderQuoteSection(quote) {
+  $('quote-id').textContent = quote.id;
+  $('quote-date').textContent = formatDateTimeCrm(quote.createdAt, { withA: true });
+  $('quote-category').textContent = quote.category;
+  $('quote-segment').textContent = quote.segment;
+  $('quote-origin').textContent = quote.origin;
+  $('quote-advisor').textContent = quote.advisor;
+}
+
+function renderFinanceCard(row) {
+  const fin = computeFinancialScore(row.entreprise, row.etablissement);
+  state.finance = fin;
+
+  $('fin-score').textContent = String(fin.score);
+  const riskEl = $('fin-risk');
+  riskEl.textContent = fin.riskLabel;
+  riskEl.dataset.tone = fin.tone;
+
+  const solvEl = $('fin-solvency');
+  solvEl.textContent = fin.solvency;
+  solvEl.dataset.tone = fin.tone;
+
+  const trendEl = $('fin-trend');
+  trendEl.textContent = fin.trend;
+  trendEl.dataset.tone = fin.trendTone;
+  $('fin-arrow').textContent = fin.trendArrow;
+
+  $('fin-year').textContent = fin.lastBalanceYear;
+  $('fin-sources').textContent = fin.sources;
+}
+
+function recomputeSiteAndEnergy({ lat, lon } = {}) {
+  if (!state.current) return;
+  const { etablissement, entreprise } = state.current;
+  const sheet = getEffectiveSheet(state.current);
+  const naf = etablissement.naf || entreprise.naf;
+  const eff = sheet.effectif || etablissement.trancheEffectif || entreprise.trancheEffectif;
+
+  const building = computeBuildingSurface(
+    state.buildingGeojson,
+    lat,
+    lon,
+    typeof window !== 'undefined' ? window.turf : null,
+    { naf, trancheEffectif: eff, manualM2: sheet.manualSurfaceM2 },
+  );
+  state.building = building;
+  $('kpi-surface-val').textContent = building.display;
+  $('kpi-surface-sub').textContent = building.subtitle;
+
+  const solar = computeSolarPotential(lat, lon, building.surfaceM2);
+  state.solar = solar;
+  $('kpi-solar-val').textContent = solar.rating;
+  $('kpi-solar-sub').textContent = solar.subtitle;
+
+  const sea = computeSeaDistance(lat, lon);
+  $('kpi-sea-val').textContent = sea.display;
+  $('kpi-sea-sub').textContent = sea.subtitle;
+
+  const access = computeAccessibility(lat, lon);
+  $('kpi-access-1').textContent = access.line1;
+  $('kpi-access-2').textContent = access.line2;
+
+  const env = computeEnvironment({ buildingUsage: building.usage, naf, airportKm: access.airportKm });
+  $('kpi-env-1').textContent = env.line1;
+  $('kpi-env-2').textContent = env.line2;
+
+  const elec = computeElectricityEstimate({
+    naf,
+    surfaceM2: building.surfaceM2,
+    trancheEffectif: eff,
+    lat,
+    buildingUsage: building.usage,
   });
-
-  dom['champ-cp'].addEventListener('input', (event) => {
-    event.target.value = event.target.value.toUpperCase().replace(/[^0-9AB]/g, '').slice(0, 5);
-  });
-  dom['champ-identifiant'].addEventListener('input', (event) => {
-    event.target.value = event.target.value.replace(/[^0-9\s]/g, '').slice(0, 20);
-  });
-
-  dom.examples.forEach((button) => {
-    button.addEventListener('click', () => {
-      writeForm({ nom: button.dataset.nom || '', codePostal: button.dataset.cp || '' });
-      doSearch({ page: 1 });
-    });
-  });
-
-  dom['champ-tri'].addEventListener('change', (event) => {
-    settings.set({ sort: event.target.value });
-    if (state.result) {
-      // Re-tri local : aucun nouvel appel API.
-      state.rows = sortRows(state.rows, event.target.value, state.criteria || {});
-      renderResultsView();
-    }
-  });
-
-  dom['champ-etat'].addEventListener('change', (event) => {
-    settings.set({ etat: event.target.value });
-    if (state.criteria) doSearch({ page: 1, criteria: state.criteria });
-  });
-
-  dom['btn-export-results'].addEventListener('click', () => {
-    const { filename, count } = exporter.exportResultsCsv(state.rows, state.criteria || {});
-    ui.toast(`${count} ligne(s) exportée(s) : ${filename}`, 'success');
-  });
-
-  dom['btn-export-geojson'].addEventListener('click', () => {
-    const { filename, count } = exporter.exportResultsGeoJson(state.rows, state.positions, state.criteria || {});
-    ui.toast(count ? `${count} point(s) exporté(s) : ${filename}` : 'Aucun établissement géolocalisé à exporter.', count ? 'success' : 'warning');
-  });
-
-  dom['btn-export-favorites'].addEventListener('click', () => {
-    const { count, filename } = exporter.exportFavoritesJson();
-    ui.toast(count ? `${count} fiche(s) exportée(s) : ${filename}` : 'Aucune fiche enregistrée.', count ? 'success' : 'warning');
-  });
-
-  dom.baselayerButtons.forEach((button) => {
-    button.addEventListener('click', () => applyBaseLayer(button.dataset.baselayer));
-  });
-
-  dom['map-street-prev'].addEventListener('click', () => stepMapStreet(-1));
-  dom['map-street-next'].addEventListener('click', () => stepMapStreet(1));
-  dom['map-street-close'].addEventListener('click', () => {
-    const previous = state.map?.getBaseLayer() || settings.get().defaultBaseLayer || config.map.defaultBaseLayer;
-    applyBaseLayer(previous);
-  });
-
-  dom['btn-recenter'].addEventListener('click', () => {
-    if (state.fiche?.position) {
-      state.map?.select(state.selectedSiret, { position: state.fiche.position, pan: true, openPopup: false });
-    } else {
-      state.map?.fitAll();
-    }
-  });
-
-  dom['btn-copy-gps'].addEventListener('click', async () => {
-    const position = state.fiche?.position;
-    const { copyText } = await import('./utils.js');
-    if (!position) { ui.toast('Aucune coordonnée à copier.', 'warning'); return; }
-    const ok = await copyText(formatCoords(position.lat, position.lon));
-    ui.toast(ok ? 'Coordonnées GPS copiées.' : 'Copie impossible sur ce navigateur.', ok ? 'success' : 'error');
-  });
-
-  dom['btn-fullscreen'].addEventListener('click', () => {
-    mapModule.toggleFullscreen(dom['map-card'], state.map, dom['btn-fullscreen']);
-  });
-
-  dom.viewbarButtons.forEach((button) => {
-    button.addEventListener('click', () => setView(button.dataset.view));
-  });
-
-  dom['btn-settings'].addEventListener('click', openSettings);
-  dom['btn-history'].addEventListener('click', () => openHistory());
-  dom['btn-recheck'].addEventListener('click', () => checkServices());
-
-  dom['btn-status'].addEventListener('click', () => {
-    const panel = dom['status-panel'];
-    panel.hidden = !panel.hidden;
-    dom['btn-status'].setAttribute('aria-expanded', String(!panel.hidden));
-  });
-
-  document.addEventListener('keydown', (event) => {
-    if (event.key === '/' && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) {
-      event.preventDefault();
-      dom['champ-nom'].focus();
-    }
-  });
-
-  window.addEventListener('hashchange', () => {
-    const match = window.location.hash.match(/^#\/etablissement\/(\d{14})$/);
-    if (match && match[1] !== state.selectedSiret) selectEtablissement(match[1]);
-  });
-
-  window.addEventListener('resize', debounce(() => {
-    state.map?.invalidate();
-    state.aerial?.invalidate();
-  }, 200));
-
-  window.addEventListener('online', () => { ui.toast('Connexion rétablie.', 'success'); checkServices(); });
-  window.addEventListener('offline', () => ui.toast('Connexion Internet perdue : les API ne répondront pas.', 'error', 6000));
+  state.electricity = elec;
+  $('elec-month').textContent = formatIntFr(elec.monthlyKwh);
+  $('elec-year').textContent = formatIntFr(elec.annualKwh);
+  $('elec-source').textContent = elec.sourceLabel;
+  renderElectricityChart($('elec-chart'), elec.monthlySeries);
 }
 
 /* ==================================================================== */
-/* 7. Démarrage                                                          */
+/* 4. Chargements asynchrones : Météo, Altitude, BD TOPO, Vue de rue     */
+/* ==================================================================== */
+
+async function loadWeatherAndAltitude(lat, lon, signal) {
+  let altitudeSet = false;
+  try {
+    const data = await fetchWeather(lat, lon, { signal });
+    if (signal.aborted) return;
+    const c = data.current;
+    $('weather-icon').innerHTML = weatherSvg(weatherIconKind(c.weather_code, c.is_day));
+    $('weather-temp').textContent = Number.isFinite(Number(c.temperature_2m))
+      ? `${Math.round(Number(c.temperature_2m))}°C`
+      : '—';
+    $('weather-desc').textContent = weatherDescription(c.weather_code);
+
+    const wind = Number.isFinite(Number(c.wind_speed_10m)) ? `${Math.round(Number(c.wind_speed_10m))} km/h` : '—';
+    const dir = windCardinalFr(c.wind_direction_10m);
+    $('weather-wind').textContent = dir && wind !== '—' ? `${wind} (${dir})` : wind;
+
+    $('weather-humidity').textContent = Number.isFinite(Number(c.relative_humidity_2m))
+      ? `${Math.round(Number(c.relative_humidity_2m))}%`
+      : '—';
+    $('weather-precip').textContent = Number.isFinite(Number(c.precipitation))
+      ? `${Number(c.precipitation)} mm`
+      : '—';
+    $('weather-updated').textContent = formatWeatherTimestamp(c.time);
+
+    if (Number.isFinite(Number(data.elevation))) {
+      state.altitudeM = Math.round(Number(data.elevation));
+      $('loc-altitude').textContent = `Altitude : ${state.altitudeM} m`;
+      setExternalLink($('btn-google-earth'), googleEarthUrl(lat, lon, state.altitudeM));
+      altitudeSet = true;
+    }
+  } catch {
+    if (signal.aborted) return;
+    $('weather-temp').textContent = '—';
+    $('weather-desc').textContent = 'Météo indisponible';
+  }
+
+  if (!altitudeSet && !signal.aborted) {
+    const alt = await fetchAltitude(lat, lon, { signal });
+    if (signal.aborted) return;
+    if (alt != null) {
+      state.altitudeM = alt;
+      $('loc-altitude').textContent = `Altitude : ${alt} m`;
+      setExternalLink($('btn-google-earth'), googleEarthUrl(lat, lon, alt));
+    } else {
+      $('loc-altitude').textContent = 'Altitude : —';
+    }
+  }
+}
+
+async function loadBuildingFootprint(lat, lon, signal) {
+  try {
+    const geojson = await fetchSiteSource('batiments', lat, lon, { signal });
+    if (signal.aborted) return;
+    state.buildingGeojson = geojson;
+    recomputeSiteAndEnergy({ lat, lon });
+  } catch {
+    // Le repli sectoriel estimé est déjà affiché.
+  }
+}
+
+function resetStreetCard(message) {
+  const img = $('street-img');
+  const empty = $('street-empty');
+  const emptyText = $('street-empty-text');
+  const credit = $('street-credit');
+  if (img) {
+    img.hidden = true;
+    img.classList.remove('is-pano');
+    img.style.width = '';
+    img.style.left = '';
+    img.removeAttribute('src');
+  }
+  if (empty) empty.hidden = false;
+  if (emptyText) emptyText.textContent = message;
+  if (credit) credit.hidden = true;
+  $('street-prev').hidden = true;
+  $('street-next').hidden = true;
+}
+
+function showStreetPhoto(index) {
+  const photos = state.streetPhotos;
+  if (!photos.length || !state.position) {
+    resetStreetCard('Aperçu direct non couvert — ouvrir dans Google Street View');
+    return;
+  }
+  const safeIdx = ((index % photos.length) + photos.length) % photos.length;
+  state.streetIndex = safeIdx;
+  const photo = photos[safeIdx];
+  const view = streetPhotoView(photo, { index: safeIdx, total: photos.length, target: state.position });
+  if (!view) {
+    resetStreetCard('Aperçu direct non couvert');
+    return;
+  }
+
+  const img = $('street-img');
+  const empty = $('street-empty');
+  const credit = $('street-credit');
+
+  img.classList.toggle('is-pano', Boolean(view.pano));
+  if (view.pano) {
+    img.style.width = `${view.pano.widthPct.toFixed(1)}%`;
+    img.style.left = `${view.pano.leftPct.toFixed(1)}%`;
+  } else {
+    img.style.width = '';
+    img.style.left = '';
+  }
+
+  img.onload = () => {
+    empty.hidden = true;
+    img.hidden = false;
+  };
+  img.onerror = () => {
+    if (img.src !== view.thumbUrl && view.thumbUrl) {
+      img.src = view.thumbUrl;
+    } else {
+      resetStreetCard('Photographie indisponible — ouvrir dans Google Street View');
+    }
+  };
+  img.alt = view.alt;
+  img.src = view.url;
+
+  if (credit) {
+    credit.textContent = view.credit;
+    credit.hidden = false;
+  }
+
+  const multiple = photos.length > 1;
+  $('street-prev').hidden = !multiple;
+  $('street-next').hidden = !multiple;
+
+  // Oriente aussi le lien Google Street View vers la façade
+  if (Number.isFinite(photo.lat) && Number.isFinite(photo.lon)) {
+    const heading = bearingDeg(photo.lat, photo.lon, state.position.lat, state.position.lon);
+    setExternalLink($('btn-street-view'), googleStreetViewUrl(state.position.lat, state.position.lon, heading));
+  }
+}
+
+async function loadStreetView(lat, lon, signal) {
+  try {
+    const { photos } = await fetchStreetPhotos({ lat, lon, signal, expandIfEmpty: true });
+    if (signal.aborted) return;
+    state.streetPhotos = photos;
+    if (!photos.length) {
+      resetStreetCard('Accès direct via Google Street View');
+      return;
+    }
+    const bestIdx = pickStreetPhotoIndex(photos, { lat, lon });
+    showStreetPhoto(bestIdx);
+  } catch {
+    if (signal.aborted) return;
+    resetStreetCard('Accès direct via Google Street View');
+  }
+}
+
+/* ==================================================================== */
+/* 5. Mode intégré (?embed=1 pour assurance-tns-pro-v2-adw)              */
+/* ==================================================================== */
+
+function updateEmbedBar() {
+  if (!state.embed?.active) return;
+  const bar = $('embed-bar');
+  const title = $('embed-bar-title');
+  const sub = $('embed-bar-sub');
+  const btn = $('btn-embed-select');
+  if (!bar) return;
+  bar.hidden = false;
+
+  if (!state.current) {
+    title.textContent = 'Aucune entreprise sélectionnée';
+    sub.textContent = 'Choisissez votre établissement dans la liste.';
+    btn.disabled = true;
+    return;
+  }
+
+  const { etablissement, entreprise } = state.current;
+  title.textContent = entreprise.raisonSociale || etablissement.nomAffiche;
+  sub.textContent = `SIRET ${etablissement.siret} · ${formatLocationLine(etablissement)}`;
+  btn.disabled = false;
+}
+
+function sendEmbedSelection() {
+  if (!state.embed?.active || !state.current) return false;
+  const siret = state.current.etablissement.siret;
+  syncContactStore(siret);
+  const contacts = userContacts.get(siret);
+  const ok = state.embed.notifySelection({
+    row: state.current,
+    position: state.position,
+    contacts,
+  });
+  if (ok) toast('Entreprise transmise au formulaire.', 'success');
+  return ok;
+}
+
+/* ==================================================================== */
+/* 6. Actions & modales CRM interactives                                 */
+/* ==================================================================== */
+
+function currentSiret() {
+  return state.current?.etablissement?.siret || '';
+}
+
+function patchCurrentSheet(partial) {
+  const siret = currentSiret();
+  if (!siret) return null;
+  const next = crmSheets.patch(siret, partial);
+  syncContactStore(siret);
+  return next;
+}
+
+function copyText(text, label) {
+  if (!text || text === '—') return;
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(text).then(
+      () => toast(`${label} copié : ${text}`, 'success'),
+      () => toast(text),
+    );
+  } else {
+    toast(text);
+  }
+}
+
+function openCommentsModal() {
+  const siret = currentSiret();
+  if (!siret) { toast('Recherchez d\'abord une entreprise.'); return; }
+  const sheet = getEffectiveSheet(state.current);
+
+  const listHtml = sheet.comments.length
+    ? sheet.comments.map((c) => `
+      <div class="comment-item">
+        <p class="comment-head"><span class="comment-chevron">›</span>${escapeHtml(formatDateTimeCrm(c.at))} - ${escapeHtml(c.author)}</p>
+        <p class="comment-text">${escapeHtml(c.text)}</p>
+      </div>`).join('')
+    : '<p class="comment-empty">Aucun commentaire pour cette fiche.</p>';
+
+  openModal({
+    title: 'Historique commentaires',
+    html: `
+      <form id="form-add-comment" class="modal-form">
+        <label class="acc-field">
+          <span>Conseiller</span>
+          <input type="text" name="author" class="crm-input" value="${escapeHtml(sheet.quote.advisor || 'hellodevis_28')}" maxlength="40">
+        </label>
+        <label class="acc-field">
+          <span>Nouveau commentaire</span>
+          <textarea name="text" class="modal-textarea" placeholder="Ex. changement d'adresse en cours, précision toiture…" required></textarea>
+        </label>
+        <div class="modal-actions">
+          <button type="submit" class="btn-search">Ajouter le commentaire</button>
+        </div>
+      </form>
+      <div class="comments-box">${listHtml}</div>
+    `,
+    onMount(body) {
+      body.querySelector('#form-add-comment')?.addEventListener('submit', (event) => {
+        event.preventDefault();
+        const fd = new FormData(event.currentTarget);
+        const text = String(fd.get('text') || '').trim();
+        const author = String(fd.get('author') || 'hellodevis_28').trim();
+        if (!text) return;
+        const updated = crmSheets.addComment(siret, { text, author });
+        renderCommentsSection(updated?.comments || []);
+        closeModal();
+        toast('Commentaire ajouté.', 'success');
+      });
+    },
+  });
+}
+
+function openQualificationsModal() {
+  const siret = currentSiret();
+  if (!siret) { toast('Recherchez d\'abord une entreprise.'); return; }
+  const sheet = getEffectiveSheet(state.current);
+
+  const rows = sheet.qualifications.length
+    ? `<table class="modal-table">
+        <thead><tr><th>Date</th><th>Qualification</th><th>Détail</th></tr></thead>
+        <tbody>${sheet.qualifications.map((q) => `
+          <tr>
+            <td>${escapeHtml(formatDateTimeCrm(q.at))}</td>
+            <td><strong>${escapeHtml(q.label)}</strong></td>
+            <td>${escapeHtml(q.detail || '—')}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>`
+    : '<p class="modal-note">Aucune qualification enregistrée sur cette société.</p>';
+
+  openModal({
+    title: 'Historique qualifications',
+    html: `
+      <form id="form-add-qualif" class="modal-form">
+        <div class="modal-form-row">
+          <label class="acc-field">
+            <span>Statut de qualification</span>
+            <select name="label" class="crm-input crm-select">
+              <option value="Qualifié — Projet confirmé">Qualifié — Projet confirmé</option>
+              <option value="En cours — Rappel prévu">En cours — Rappel prévu</option>
+              <option value="Devis transmis">Devis transmis</option>
+              <option value="Injoignable">Injoignable</option>
+              <option value="Sans suite / Hors cible">Sans suite / Hors cible</option>
+            </select>
+          </label>
+          <label class="acc-field">
+            <span>Précision</span>
+            <input type="text" name="detail" class="crm-input" placeholder="Commentaire court…" maxlength="160">
+          </label>
+        </div>
+        <div class="modal-actions">
+          <button type="submit" class="btn-search">Enregistrer</button>
+        </div>
+      </form>
+      ${rows}
+    `,
+    onMount(body) {
+      body.querySelector('#form-add-qualif')?.addEventListener('submit', (event) => {
+        event.preventDefault();
+        const fd = new FormData(event.currentTarget);
+        crmSheets.addEvent(siret, 'qualifications', {
+          label: String(fd.get('label') || ''),
+          detail: String(fd.get('detail') || ''),
+          author: sheet.quote.advisor,
+        });
+        closeModal();
+        toast('Qualification enregistrée.', 'success');
+      });
+    },
+  });
+}
+
+function openQuoteCriteriaModal() {
+  const siret = currentSiret();
+  if (!siret) { toast('Recherchez d\'abord une entreprise.'); return; }
+  const { quote } = getEffectiveSheet(state.current);
+
+  openModal({
+    title: `Critères de la demande #${quote.id}`,
+    html: `
+      <form id="form-quote-criteria" class="modal-form">
+        <div class="modal-form-row">
+          <label class="acc-field">
+            <span>ID Demande</span>
+            <input type="text" name="id" class="crm-input" value="${escapeHtml(quote.id)}" maxlength="20" required>
+          </label>
+          <label class="acc-field">
+            <span>Catégorie</span>
+            <input type="text" name="category" class="crm-input" value="${escapeHtml(quote.category)}" maxlength="80" required>
+          </label>
+        </div>
+        <div class="modal-form-row">
+          <label class="acc-field">
+            <span>Segment fournisseur</span>
+            <input type="text" name="segment" class="crm-input" value="${escapeHtml(quote.segment)}" maxlength="60">
+          </label>
+          <label class="acc-field">
+            <span>Login Conseiller acheteur</span>
+            <input type="text" name="advisor" class="crm-input" value="${escapeHtml(quote.advisor)}" maxlength="40">
+          </label>
+        </div>
+        <label class="acc-field">
+          <span>Critères techniques du projet</span>
+          <textarea name="criteria" class="modal-textarea">${escapeHtml(quote.criteria)}</textarea>
+        </label>
+        <div class="modal-actions">
+          <button type="submit" class="btn-search">Enregistrer</button>
+        </div>
+      </form>
+    `,
+    onMount(body) {
+      body.querySelector('#form-quote-criteria')?.addEventListener('submit', (event) => {
+        event.preventDefault();
+        const fd = new FormData(event.currentTarget);
+        const nextQuote = {
+          ...quote,
+          id: String(fd.get('id') || quote.id).trim(),
+          category: String(fd.get('category') || quote.category).trim(),
+          segment: String(fd.get('segment') || '').trim(),
+          advisor: String(fd.get('advisor') || '').trim(),
+          criteria: String(fd.get('criteria') || '').trim(),
+        };
+        patchCurrentSheet({ quote: nextQuote });
+        crmSheets.addEvent(siret, 'quoteHistory', { label: 'Critères mis à jour', detail: nextQuote.category, author: nextQuote.advisor });
+        renderQuoteSection(nextQuote);
+        closeModal();
+        toast('Demande de devis mise à jour.', 'success');
+      });
+    },
+  });
+}
+
+function openQuoteHistoryModal() {
+  const siret = currentSiret();
+  if (!siret) { toast('Recherchez d\'abord une entreprise.'); return; }
+  const sheet = getEffectiveSheet(state.current);
+  const events = [
+    ...sheet.quoteHistory,
+    { at: sheet.quote.createdAt, label: 'Création de la demande', detail: `${sheet.quote.origin} — ${sheet.quote.category}`, author: sheet.quote.advisor },
+  ];
+  openModal({
+    title: `Historique de la demande #${sheet.quote.id}`,
+    html: `
+      <table class="modal-table">
+        <thead><tr><th>Date</th><th>Événement</th><th>Détail</th></tr></thead>
+        <tbody>${events.map((e) => `
+          <tr>
+            <td>${escapeHtml(formatDateTimeCrm(e.at))}</td>
+            <td><strong>${escapeHtml(e.label)}</strong></td>
+            <td>${escapeHtml(e.detail || '—')}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    `,
+  });
+}
+
+function openCallNoteModal() {
+  const siret = currentSiret();
+  if (!siret) { toast('Recherchez d\'abord une entreprise.'); return; }
+  const { quote } = getEffectiveSheet(state.current);
+  openModal({
+    title: `Suivi d'appel — Conseiller ${quote.advisor}`,
+    html: `
+      <form id="form-call-note" class="modal-form">
+        <p class="modal-note">Aucun enregistrement audio n'est rattaché en local. Vous pouvez consigner ci-dessous le compte rendu d'appel de qualification.</p>
+        <label class="acc-field">
+          <span>Compte rendu d'entretien</span>
+          <textarea name="callNote" class="modal-textarea" placeholder="Résumé de l'échange avec l'acheteur…">${escapeHtml(quote.callNote || '')}</textarea>
+        </label>
+        <div class="modal-actions">
+          <button type="submit" class="btn-search">Enregistrer</button>
+        </div>
+      </form>
+    `,
+    onMount(body) {
+      body.querySelector('#form-call-note')?.addEventListener('submit', (event) => {
+        event.preventDefault();
+        const note = String(new FormData(event.currentTarget).get('callNote') || '').trim();
+        patchCurrentSheet({ quote: { ...quote, callNote: note } });
+        closeModal();
+        toast('Compte rendu d\'appel enregistré.', 'success');
+      });
+    },
+  });
+}
+
+function openBimpModal() {
+  const siret = currentSiret();
+  if (!siret) { toast('Recherchez d\'abord une entreprise.'); return; }
+  const { quote } = getEffectiveSheet(state.current);
+  const statuses = ['En cours de qualification', 'Lead validé — transmis', 'RDV fournisseur planifié', 'Devis signé', 'Lead contesté / SAV'];
+  openModal({
+    title: 'Suivi Lead indicateur BIMP',
+    html: `
+      <form id="form-bimp" class="modal-form">
+        <label class="acc-field">
+          <span>État BIMP</span>
+          <select name="bimpStatus" class="crm-input crm-select">
+            ${statuses.map((s) => `<option value="${escapeHtml(s)}"${s === quote.bimpStatus ? ' selected' : ''}>${escapeHtml(s)}</option>`).join('')}
+          </select>
+        </label>
+        <label class="acc-field">
+          <span>Observation indicateur BIMP</span>
+          <textarea name="bimpNote" class="modal-textarea" placeholder="Retour fournisseur, avancement du dossier…">${escapeHtml(quote.bimpNote || '')}</textarea>
+        </label>
+        <div class="modal-actions">
+          <button type="submit" class="btn-search">Mettre à jour</button>
+        </div>
+      </form>
+    `,
+    onMount(body) {
+      body.querySelector('#form-bimp')?.addEventListener('submit', (event) => {
+        event.preventDefault();
+        const fd = new FormData(event.currentTarget);
+        const bimpStatus = String(fd.get('bimpStatus') || '');
+        const bimpNote = String(fd.get('bimpNote') || '').trim();
+        patchCurrentSheet({ quote: { ...quote, bimpStatus, bimpNote } });
+        crmSheets.addEvent(siret, 'quoteHistory', { label: 'Suivi BIMP', detail: bimpStatus, author: quote.advisor });
+        closeModal();
+        toast(`Indicateur BIMP : ${bimpStatus}`, 'success');
+      });
+    },
+  });
+}
+
+function openSurfaceModal() {
+  const siret = currentSiret();
+  if (!siret || !state.building) return;
+  const sheet = getEffectiveSheet(state.current);
+  const b = state.building;
+  const sourceText = b.source === 'bdtopo'
+    ? 'Calculée à partir de l\'emprise vectorielle IGN BD TOPO® au point GPS.'
+    : b.source === 'manual'
+      ? 'Valeur saisie manuellement pour cette fiche.'
+      : 'Estimée d\'après l\'activité (code NAF) et la tranche d\'effectif.';
+
+  openModal({
+    title: 'Surface bâtiment',
+    html: `
+      <p>Surface retenue : <strong>${escapeHtml(b.display)}</strong>${b.heightM ? ` · Hauteur BD TOPO : ${b.heightM} m` : ''}</p>
+      <p class="modal-note">${escapeHtml(sourceText)}</p>
+      <form id="form-surface" class="modal-form">
+        <label class="acc-field">
+          <span>Corriger la surface au sol (m²) — laisser vide pour le calcul automatique</span>
+          <input type="number" name="m2" class="crm-input" min="20" max="500000" step="10"
+                 value="${sheet.manualSurfaceM2 ? escapeHtml(String(sheet.manualSurfaceM2)) : ''}"
+                 placeholder="${escapeHtml(String(b.surfaceM2))}">
+        </label>
+        <div class="modal-actions">
+          <button type="submit" class="btn-search">Appliquer</button>
+        </div>
+      </form>
+    `,
+    onMount(body) {
+      body.querySelector('#form-surface')?.addEventListener('submit', (event) => {
+        event.preventDefault();
+        const raw = String(new FormData(event.currentTarget).get('m2') || '').trim();
+        const num = raw ? Number(raw) : null;
+        patchCurrentSheet({ manualSurfaceM2: num && Number.isFinite(num) && num >= 20 ? Math.round(num) : null });
+        recomputeSiteAndEnergy(state.position || {});
+        closeModal();
+        toast('Surface et estimations énergétiques recalculées.', 'success');
+      });
+    },
+  });
+}
+
+function openLogoModal() {
+  const siret = currentSiret();
+  if (!siret) return;
+  const sheet = getEffectiveSheet(state.current);
+  openModal({
+    title: 'Logo de l\'entreprise',
+    html: `
+      <form id="form-logo" class="modal-form">
+        <label class="acc-field">
+          <span>URL du logo (https://…) — laisser vide pour l'affichage automatique</span>
+          <input type="url" name="logoUrl" class="crm-input" value="${escapeHtml(sheet.logoUrl)}"
+                 placeholder="https://exemple.fr/logo.png">
+        </label>
+        <div class="modal-actions">
+          <button type="submit" class="btn-search">Enregistrer</button>
+        </div>
+      </form>
+    `,
+    onMount(body) {
+      body.querySelector('#form-logo')?.addEventListener('submit', (event) => {
+        event.preventDefault();
+        const raw = String(new FormData(event.currentTarget).get('logoUrl') || '').trim();
+        const clean = raw ? safeUrl(raw) : '';
+        patchCurrentSheet({ logoUrl: clean });
+        renderCompanyLogo({
+          imgEl: $('co-logo-img'),
+          fallbackEl: $('co-logo-fallback'),
+          name: $('co-name').textContent,
+          logoUrl: clean,
+        });
+        closeModal();
+        toast('Logo mis à jour.', 'success');
+      });
+    },
+  });
+}
+
+function openExpandedMapModal() {
+  let controller = null;
+  const pos = state.position;
+  const label = state.current
+    ? `${state.current.entreprise.raisonSociale || state.current.etablissement.nomAffiche} — ${formatLocationLine(state.current.etablissement)}`
+    : '';
+
+  openModal({
+    title: label ? `Localisation — ${label}` : 'Carte de localisation',
+    wide: true,
+    html: `
+      <div class="modal-map-toolbar">
+        <button type="button" class="modal-layer-btn is-active" data-layer="ign">Plan IGN</button>
+        <button type="button" class="modal-layer-btn" data-layer="plan">OpenStreetMap</button>
+        <button type="button" class="modal-layer-btn" data-layer="satellite">Vue satellite</button>
+      </div>
+      <div id="modal-map-canvas" class="modal-map-box"></div>
+    `,
+    onMount(body) {
+      const box = body.querySelector('#modal-map-canvas');
+      createExpandedMap(box, {
+        lat: pos?.lat,
+        lon: pos?.lon,
+        label,
+        initialLayer: 'ign',
+      }).then((ctrl) => {
+        controller = ctrl;
+        setTimeout(() => ctrl.invalidate(), 50);
+      }).catch(() => {});
+
+      body.querySelectorAll('[data-layer]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          body.querySelectorAll('[data-layer]').forEach((b) => b.classList.toggle('is-active', b === btn));
+          controller?.setLayer(btn.dataset.layer);
+        });
+      });
+    },
+    onClose() {
+      controller?.destroy();
+      controller = null;
+    },
+  });
+}
+
+function openMiseEnRelationModal() {
+  if (!state.current) { toast('Recherchez d\'abord une entreprise.'); return; }
+  if (state.embed?.active) { sendEmbedSelection(); return; }
+
+  const { etablissement, entreprise } = state.current;
+  const sheet = getEffectiveSheet(state.current);
+  const companyName = entreprise.raisonSociale || etablissement.nomAffiche;
+  const buyerLine = [sheet.civilite, sheet.prenom, sheet.nom].filter(Boolean).join(' ').trim();
+  const summaryLines = [
+    `Société : ${companyName} (SIRET ${etablissement.siret})`,
+    `Adresse : ${formatLocationLine(etablissement)}`,
+    state.position ? `GPS : ${formatCoordCardinal(state.position.lat, state.position.lon)}` : '',
+    `Acheteur : ${buyerLine}${sheet.fonction ? ` — ${sheet.fonction}` : ''}`,
+    sheet.mobile ? `Ligne directe : ${formatPhoneDots(sheet.mobile)}` : '',
+    sheet.email ? `E-mail : ${sheet.email}` : '',
+    `Demande #${sheet.quote.id} : ${sheet.quote.category} (${sheet.quote.segment})`,
+    state.building ? `Surface bâtiment : ${state.building.display} · Potentiel solaire : ${state.solar?.rating || '—'}` : '',
+    state.electricity ? `Consommation estimée : ${formatIntFr(state.electricity.monthlyKwh)} kWh/mois (${formatIntFr(state.electricity.annualKwh)} kWh/an)` : '',
+    `Fournisseurs max. : ${sheet.leadgen.max}`,
+  ].filter(Boolean).join('\n');
+
+  openModal({
+    title: `Mise en relation — ${companyName}`,
+    html: `
+      <p>Vérifiez le récapitulatif de la fiche avant validation de la mise en relation :</p>
+      <pre class="comments-box" style="white-space:pre-wrap;font-family:inherit;font-size:11.5px">${escapeHtml(summaryLines)}</pre>
+      <div class="modal-actions">
+        <button type="button" id="btn-mer-copy" class="btn-crm-outline">Copier la fiche</button>
+        <button type="button" id="btn-mer-confirm" class="btn-crm-green">Valider la mise en relation</button>
+      </div>
+    `,
+    onMount(body) {
+      body.querySelector('#btn-mer-copy')?.addEventListener('click', () => {
+        copyText(summaryLines, 'Récapitulatif');
+      });
+      body.querySelector('#btn-mer-confirm')?.addEventListener('click', () => {
+        const siret = etablissement.siret;
+        crmSheets.addEvent(siret, 'quoteHistory', {
+          label: 'Mise en relation effectuée',
+          detail: `${sheet.quote.category} — ${sheet.leadgen.max} fournisseurs max.`,
+          author: sheet.quote.advisor,
+        });
+        crmSheets.addEvent(siret, 'qualifications', {
+          label: 'Mise en relation validée',
+          detail: `Demande #${sheet.quote.id} (${sheet.quote.category})`,
+          author: sheet.quote.advisor,
+        });
+        closeModal();
+        toast('Mise en relation enregistrée avec succès.', 'success');
+      });
+    },
+  });
+}
+
+/* ==================================================================== */
+/* 7. Événements de l'interface                                          */
+/* ==================================================================== */
+
+function bindEvents() {
+  // Recherche
+  $('search-form')?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const q = $('champ-recherche')?.value || '';
+    const cp = $('champ-cp')?.value || '';
+    const criteria = parseSearchInput(q, cp);
+    if (criteria.identifiant && isValidSiret(criteria.identifiant) && !criteria.codePostal && !criteria.ville) {
+      loadBySiret(criteria.identifiant);
+      return;
+    }
+    executeSearch(criteria);
+  });
+
+  // Masquer / afficher la barre de recherche
+  $('btn-hide-search')?.addEventListener('click', () => setSearchCollapsed(true));
+  $('btn-show-search')?.addEventListener('click', () => {
+    setSearchCollapsed(false);
+    $('champ-recherche')?.focus();
+  });
+
+  // Liste déroulante des résultats
+  $('btn-results-toggle')?.addEventListener('click', () => {
+    const drop = $('results-dropdown');
+    const btn = $('btn-results-toggle');
+    if (!drop || !btn) return;
+    const willOpen = drop.hidden;
+    drop.hidden = !willOpen;
+    btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+  });
+
+  document.addEventListener('click', (event) => {
+    const anchor = event.target.closest?.('.search-results-anchor');
+    if (!anchor) {
+      const drop = $('results-dropdown');
+      if (drop && !drop.hidden) {
+        drop.hidden = true;
+        $('btn-results-toggle')?.setAttribute('aria-expanded', 'false');
+      }
+    }
+    if (event.target.closest?.('[data-close-modal]')) closeModal();
+  });
+
+  // Raccourcis clavier : / ouvre la recherche, Échap ferme la modale
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      closeModal();
+      const drop = $('results-dropdown');
+      if (drop) drop.hidden = true;
+      return;
+    }
+    const tag = document.activeElement?.tagName || '';
+    if (event.key === '/' && !['INPUT', 'TEXTAREA', 'SELECT'].includes(tag) && !state.embed?.active) {
+      event.preventDefault();
+      setSearchCollapsed(false);
+      $('champ-recherche')?.focus();
+      $('champ-recherche')?.select();
+    }
+  });
+
+  // Sélecteur mode intégré
+  $('embed-select-row')?.addEventListener('change', (event) => {
+    const found = state.rows.find((r) => r.etablissement.siret === event.target.value);
+    if (found) selectRow(found);
+  });
+  $('btn-embed-select')?.addEventListener('click', sendEmbedSelection);
+
+  // Copie SIRET & GPS
+  $('btn-copy-siret')?.addEventListener('click', () => copyText(currentSiret(), 'SIRET'));
+  $('loc-coords')?.addEventListener('click', () => {
+    if (state.position) copyText(`${state.position.lat.toFixed(6)}, ${state.position.lon.toFixed(6)}`, 'GPS');
+  });
+
+  // Logo entreprise
+  $('btn-company-logo')?.addEventListener('click', openLogoModal);
+
+  // Téléphone standard
+  $('btn-tel-standard')?.addEventListener('click', () => {
+    if (!currentSiret()) return;
+    const sheet = getEffectiveSheet(state.current);
+    const editor = $('tel-standard-editor');
+    editor.hidden = !editor.hidden;
+    if (!editor.hidden) {
+      $('input-tel-standard').value = sheet.telStandard ? formatPhoneFr(sheet.telStandard) : '';
+      $('input-tel-standard').focus();
+    }
+  });
+  $('btn-save-tel')?.addEventListener('click', () => {
+    const raw = $('input-tel-standard').value.trim();
+    if (!raw) {
+      patchCurrentSheet({ telStandard: '' });
+      renderTelStandard('');
+      $('tel-standard-editor').hidden = true;
+      return;
+    }
+    const norm = normalizePhoneFr(raw);
+    if (!norm) { toast('Numéro français à 10 chiffres attendu.', 'error'); return; }
+    patchCurrentSheet({ telStandard: norm });
+    renderTelStandard(norm);
+    $('tel-standard-editor').hidden = true;
+    toast('N° tél standard enregistré.', 'success');
+  });
+  $('btn-cancel-tel')?.addEventListener('click', () => { $('tel-standard-editor').hidden = true; });
+
+  // Ligne directe acheteur
+  const toggleMobileEditor = () => {
+    if (!currentSiret()) return;
+    const sheet = getEffectiveSheet(state.current);
+    const editor = $('mobile-editor');
+    editor.hidden = !editor.hidden;
+    if (!editor.hidden) {
+      $('input-buyer-mobile').value = sheet.mobile ? formatPhoneDots(sheet.mobile) : '';
+      $('input-buyer-mobile').focus();
+    }
+  };
+  $('btn-edit-mobile')?.addEventListener('click', toggleMobileEditor);
+  $('btn-add-mobile-hint')?.addEventListener('click', toggleMobileEditor);
+  $('btn-save-mobile')?.addEventListener('click', () => {
+    const raw = $('input-buyer-mobile').value.trim();
+    if (!raw) {
+      patchCurrentSheet({ mobile: '' });
+      renderBuyerMobile('');
+      $('mobile-editor').hidden = true;
+      return;
+    }
+    const norm = normalizePhoneFr(raw);
+    if (!norm) { toast('Numéro français à 10 chiffres attendu.', 'error'); return; }
+    patchCurrentSheet({ mobile: norm });
+    renderBuyerMobile(norm);
+    $('mobile-editor').hidden = true;
+    toast('Ligne directe enregistrée.', 'success');
+  });
+  $('btn-cancel-mobile')?.addEventListener('click', () => { $('mobile-editor').hidden = true; });
+
+  // Sauvegarde automatique des champs Société & Acheteur
+  $('co-effectif')?.addEventListener('change', (e) => {
+    patchCurrentSheet({ effectif: e.target.value });
+    recomputeSiteAndEnergy(state.position || {});
+  });
+  $('co-type')?.addEventListener('change', (e) => patchCurrentSheet({ entityType: e.target.value }));
+  $('co-website')?.addEventListener('change', (e) => patchCurrentSheet({ website: e.target.value.trim() }));
+  $('buyer-civilite')?.addEventListener('change', (e) => patchCurrentSheet({ civilite: e.target.value }));
+  $('buyer-prenom')?.addEventListener('change', (e) => patchCurrentSheet({ prenom: e.target.value.trim() }));
+  $('buyer-nom')?.addEventListener('change', (e) => {
+    const val = e.target.value.trim().toUpperCase();
+    e.target.value = val;
+    patchCurrentSheet({ nom: val });
+  });
+  $('buyer-fonction')?.addEventListener('change', (e) => patchCurrentSheet({ fonction: e.target.value.trim() }));
+  $('buyer-email')?.addEventListener('change', (e) => {
+    const val = e.target.value.trim();
+    if (val && !isValidEmail(val)) {
+      toast('Adresse e-mail invalide.', 'error');
+      return;
+    }
+    patchCurrentSheet({ email: val });
+  });
+
+  // Commentaires & liens Acheteur
+  $('btn-comments-history')?.addEventListener('click', openCommentsModal);
+  $('btn-comments-more')?.addEventListener('click', () => {
+    if (!currentSiret()) return;
+    const sheet = getEffectiveSheet(state.current);
+    if (sheet.comments.length <= 1) {
+      openCommentsModal();
+      return;
+    }
+    state.commentsExpanded = !state.commentsExpanded;
+    renderCommentsSection(sheet.comments);
+  });
+
+  $('btn-new-sheet-same')?.addEventListener('click', () => {
+    const siret = currentSiret();
+    if (!siret) { toast('Recherchez d\'abord une entreprise.'); return; }
+    const sheet = getEffectiveSheet(state.current);
+    const newId = String(3800000 + Math.floor(Math.random() * 199999));
+    const nextQuote = { ...sheet.quote, id: newId, createdAt: new Date().toISOString() };
+    patchCurrentSheet({ quote: nextQuote });
+    crmSheets.addEvent(siret, 'quoteHistory', { label: `Nouvelle fiche #${newId} créée`, detail: nextQuote.category, author: nextQuote.advisor });
+    renderQuoteSection(nextQuote);
+    toast(`Nouvelle fiche #${newId} créée sur cette société.`, 'success');
+  });
+
+  $('btn-new-sheet-other')?.addEventListener('click', () => {
+    if (state.embed?.active) {
+      state.embed.requestSearch();
+      return;
+    }
+    setSearchCollapsed(false);
+    const input = $('champ-recherche');
+    const cp = $('champ-cp');
+    if (input) { input.value = ''; input.focus(); }
+    if (cp) cp.value = '';
+    setSearchStatus('Saisissez une nouvelle société ou un SIRET.');
+  });
+
+  $('btn-qualifications')?.addEventListener('click', openQualificationsModal);
+
+  // Demande de devis
+  $('btn-quote-criteria')?.addEventListener('click', openQuoteCriteriaModal);
+  $('btn-quote-history')?.addEventListener('click', openQuoteHistoryModal);
+  $('btn-quote-audio')?.addEventListener('click', openCallNoteModal);
+  $('btn-resend-suppliers')?.addEventListener('click', () => {
+    const siret = currentSiret();
+    if (!siret) { toast('Recherchez d\'abord une entreprise.'); return; }
+    const sheet = getEffectiveSheet(state.current);
+    crmSheets.addEvent(siret, 'quoteHistory', {
+      label: 'Renvoi coordonnées fournisseurs',
+      detail: sheet.email ? `Envoyé vers ${sheet.email}` : 'Enregistré sur la fiche',
+      author: sheet.quote.advisor,
+    });
+    toast('Renvoi des coordonnées fournisseurs enregistré.', 'success');
+  });
+  $('btn-bimp-track')?.addEventListener('click', openBimpModal);
+
+  // Carte agrandie
+  $('btn-expand-map')?.addEventListener('click', openExpandedMapModal);
+
+  // Navigation Vue de la rue
+  $('street-prev')?.addEventListener('click', () => showStreetPhoto(state.streetIndex - 1));
+  $('street-next')?.addEventListener('click', () => showStreetPhoto(state.streetIndex + 1));
+
+  // Détails Financier, Électricité, KPI Surface & Solaire
+  $('btn-finance-detail')?.addEventListener('click', () => {
+    if (!state.finance || !state.current) return;
+    openModal({
+      title: 'Note financière (estimée) — Détail',
+      html: buildFinancialModalHtml(state.finance, state.current.entreprise, state.current.etablissement),
+    });
+  });
+
+  $('btn-elec-detail')?.addEventListener('click', () => {
+    if (!state.electricity) return;
+    openModal({
+      title: 'Consommation d\'électricité (estimée) — Évolution mensuelle',
+      html: buildElectricityModalHtml(state.electricity, state.solar),
+    });
+  });
+
+  $('kpi-surface')?.addEventListener('click', openSurfaceModal);
+  $('kpi-solar')?.addEventListener('click', () => {
+    if (!state.solar) return;
+    openModal({
+      title: 'Potentiel solaire du site',
+      html: `
+        <table class="modal-table">
+          <tbody>
+            <tr><th>Qualification</th><td><strong>${escapeHtml(state.solar.rating)}</strong> (${escapeHtml(state.solar.subtitle)})</td></tr>
+            <tr><th>Gisement annuel estimé</th><td>${escapeHtml(formatIntFr(state.solar.irradiationKwhM2))} kWh / m² / an</td></tr>
+            <tr><th>Puissance crête installable</th><td>~ ${escapeHtml(formatIntFr(state.solar.installableKwc))} kWc (60 % de la toiture)</td></tr>
+            <tr><th>Production annuelle estimée</th><td>~ ${escapeHtml(formatIntFr(state.solar.annualProdKwh))} kWh / an</td></tr>
+          </tbody>
+        </table>
+        <p class="modal-note">Estimation indicative avant étude de calepinage, d'ombrage et de structure de charpente.</p>
+      `,
+    });
+  });
+
+  // Accordéons RAC, Prelead, Génération de lead
+  document.querySelectorAll('.crm-accordion-head').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const panel = document.getElementById(btn.getAttribute('aria-controls'));
+      const sign = btn.querySelector('.crm-accordion-sign');
+      if (!panel) return;
+      const open = panel.hidden;
+      panel.hidden = !open;
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      if (sign) sign.textContent = open ? '−' : '+';
+    });
+  });
+
+  const saveRac = () => patchCurrentSheet({
+    rac: { status: $('rac-status').value, date: $('rac-date').value, note: $('rac-note').value.trim() },
+  });
+  ['rac-status', 'rac-date', 'rac-note'].forEach((id) => $(id)?.addEventListener('change', saveRac));
+
+  const savePrelead = () => patchCurrentSheet({
+    prelead: { owner: $('prelead-owner').value, delay: $('prelead-delay').value, budget: $('prelead-budget').value.trim() },
+  });
+  ['prelead-owner', 'prelead-delay', 'prelead-budget'].forEach((id) => $(id)?.addEventListener('change', savePrelead));
+
+  const saveLeadgen = () => patchCurrentSheet({
+    leadgen: { channel: $('leadgen-channel').value, max: $('leadgen-max').value },
+  });
+  ['leadgen-channel', 'leadgen-max'].forEach((id) => $(id)?.addEventListener('change', saveLeadgen));
+
+  // Mise en relation
+  $('btn-mise-en-relation')?.addEventListener('click', openMiseEnRelationModal);
+}
+
+/* ==================================================================== */
+/* 8. Démarrage                                                          */
 /* ==================================================================== */
 
 async function boot() {
-  cacheDom();
-  ui.initUi();
-
-  const current = settings.get();
-  dom['champ-tri'].value = current.sort;
-  dom['champ-etat'].value = current.etat;
-
-  dom['results-list'].append(ui.emptyState({
-    iconName: 'search',
-    title: 'Recherchez une entreprise française',
-    message: 'Nom + code postal, ville seule, code postal seul ou SIREN/SIRET. Les résultats proviennent de l\'API officielle Recherche d\'entreprises, les coordonnées de la Base Adresse Nationale et de SIRENE.',
-  }));
-
-  loadLabels().catch(() => { /* libellés optionnels */ });
-
-  try {
-    state.map = await mapModule.createMap({
-      container: dom.map,
-      overlay: dom['map-overlay'],
-      readout: dom['map-readout'],
-      credits: dom['map-credits'],
-      onMarkerSelect: (siret, options) => selectEtablissement(siret, options),
-    });
-    applyBaseLayer(current.defaultBaseLayer);
-  } catch (error) {
-    dom['boot-error'].hidden = false;
-    dom['boot-error'].textContent = `Carte indisponible : ${toUserMessage(error)} — Servez le dossier avec « node server.js » ou « python -m http.server » plutôt que d'ouvrir le fichier en double-cliquant.`;
-  }
-
-  wireEvents();
-
-  // Le chemin réseau (proxy local ou appel direct) est décidé avant tout appel.
-  await detectProxy();
-
-  // Mode intégré (iframe du formulaire d'assurance) : la recherche part des
-  // informations déjà saisies, et l'entreprise choisie est renvoyée au parent.
-  if (embed.init()) {
-    embed.onSearch(({ nom, codePostal }) => {
-      if (!nom && !codePostal) return;
-      writeForm({ nom, codePostal });
-      doSearch();
-    });
-    if (embed.params.nom || embed.params.codePostal) {
-      writeForm({ nom: embed.params.nom, codePostal: embed.params.codePostal });
-    }
-    updateEmbedBar(null);
-    if (embed.params.nom || embed.params.codePostal) doSearch();
-  }
-  images.detectMapillaryAccess().then((access) => { state.mapillaryAccess = access; });
-  streetview.detectGoogleStreetView().then((google) => { state.googleStreetView = google; });
-  checkServices();
-
-  const match = window.location.hash.match(/^#\/etablissement\/(\d{14})$/);
-  if (match) selectEtablissement(match[1]);
-
-  // Démarrage réussi : désarme le chien de garde de js/boot.js.
   window.__companyLocatorReady = true;
+
+  // Rendu initial des icônes statiques
+  $('weather-icon').innerHTML = weatherSvg('partly-cloudy');
+  renderElectricityChart($('elec-chart'), []);
+
+  // Mode intégré (?embed=1)
+  state.embed = createEmbedBridge(window);
+  const isEmbed = state.embed.init();
+  if (isEmbed) {
+    state.embed.onSearch(({ nom, codePostal }) => {
+      executeSearch({ nom: nom || '', codePostal: codePostal || '', ville: '', adresse: '', identifiant: '' });
+    });
+    updateEmbedBar();
+  } else if (uiPrefs.get().searchCollapsed) {
+    setSearchCollapsed(true, { persist: false });
+  }
+
+  bindEvents();
+
+  // Chargement en parallèle des libellés INSEE et des deux cartes Leaflet
+  const [, planRes, satRes] = await Promise.allSettled([
+    loadLabels(),
+    createPlanMap($('map-plan')),
+    createSatelliteMap($('map-satellite'), {
+      onStatus: ({ ok }) => { $('sat-empty').hidden = ok; },
+    }),
+  ]);
+  if (planRes.status === 'fulfilled') state.planMap = planRes.value;
+  if (satRes.status === 'fulfilled') state.satMap = satRes.value;
+
+  // Paramètres d'URL / ancre
+  const params = new URLSearchParams(window.location.search);
+  const hashMatch = /siret=(\d{14})/.exec(window.location.hash || '');
+  const urlSiret = digitsOnly(params.get('siret') || (hashMatch ? hashMatch[1] : ''));
+  const urlNom = (params.get('nom') || params.get('q') || '').trim();
+  const urlCp = (params.get('cp') || params.get('codePostal') || '').trim();
+
+  if (isEmbed) {
+    if (state.embed.params.nom || state.embed.params.codePostal) {
+      await executeSearch({
+        nom: state.embed.params.nom,
+        codePostal: state.embed.params.codePostal,
+        ville: '',
+        adresse: '',
+        identifiant: '',
+      });
+    }
+    return;
+  }
+
+  if (urlSiret && isValidSiret(urlSiret)) {
+    $('champ-recherche').value = urlSiret;
+    await loadBySiret(urlSiret);
+    return;
+  }
+
+  if (urlNom || urlCp) {
+    $('champ-recherche').value = urlNom;
+    $('champ-cp').value = urlCp;
+    await executeSearch(parseSearchInput(urlNom, urlCp));
+    return;
+  }
+
+  // Ouverture directe : charge le dernier SIRET consulté ou l'entreprise par défaut (sauf ?empty=1)
+  if (params.get('empty') !== '1') {
+    const initialSiret = uiPrefs.get().lastSiret || config.app.defaultSiret;
+    if (initialSiret && isValidSiret(initialSiret)) {
+      await loadBySiret(initialSiret, { silent: true });
+    }
+  }
 }
 
 boot().catch((error) => {
-  const banner = document.getElementById('boot-error');
+  const banner = $('boot-error');
   if (banner) {
     banner.hidden = false;
     banner.textContent = `Erreur au démarrage : ${toUserMessage(error)}`;
   }
-  console.error('[Company Locator] Échec du démarrage', error);
 });

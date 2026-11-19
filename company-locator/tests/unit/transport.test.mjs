@@ -5,7 +5,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { toProxyUrl, detectProxy, fetchServiceJson, transportLabel, transportInternals } from '../../js/transport.js';
+import { toProxyUrl, detectProxy, fetchServiceJson, transportInternals } from '../../js/transport.js';
 import { ERR } from '../../js/utils.js';
 
 test('toProxyUrl : API entreprises', () => {
@@ -43,7 +43,6 @@ test('toProxyUrl : origine étrangère refusée (pas de proxy ouvert)', () => {
 test('detectProxy : hors navigateur, aucun relais disponible', async () => {
   const state = await detectProxy({ force: true });
   assert.equal(state.available, false);
-  assert.match(transportLabel(), /serveur statique|détection/i);
 });
 
 test('fetchServiceJson : hors navigateur, appel direct à l\'URL publique', async () => {
@@ -75,7 +74,8 @@ test('fetchServiceJson : erreur HTTP métier remontée sans mascarade', async ()
   }
 });
 
-test('transportInternals.resetTransportState remet la détection à zéro', () => {
+test('transportInternals.resetTransportState remet la détection à zéro', async () => {
   transportInternals.resetTransportState();
-  assert.equal(transportLabel(), 'détection du serveur local…');
+  const state = await detectProxy({ force: true });
+  assert.equal(state.checked, true);
 });

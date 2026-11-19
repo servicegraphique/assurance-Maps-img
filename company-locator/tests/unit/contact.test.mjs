@@ -13,11 +13,10 @@ import assert from 'node:assert/strict';
 
 import {
   CONTACT_FIELDS, CONTACT_KEYS, normalizePhoneFr, isMobileFr, isLandlineFr,
-  formatPhoneFr, phoneHref, isValidEmail, emailHref, validateContactInput,
+  formatPhoneFr, formatPhoneDots, phoneHref, isValidEmail, emailHref, validateContactInput,
   hasContact, contactChannels, contactSummary, buildContactRecord,
 } from '../../js/contact.js';
-import { userContacts, purgeUserData } from '../../js/storage.js';
-import { ficheFields } from '../../js/export.js';
+import { userContacts, purgeEverything } from '../../js/storage.js';
 import { selectionPayload } from '../../js/embed.js';
 
 const SIRET = '73282932000074';
@@ -115,8 +114,11 @@ test('Affichage : canaux, ordre et résumé', () => {
 });
 
 test('Enregistrement local par SIRET', () => {
-  purgeUserData();
+  purgeEverything();
   assert.equal(userContacts.get(SIRET), null);
+
+  assert.equal(formatPhoneDots('0662846087'), '06.62.84.60.87');
+  assert.equal(formatPhoneDots('+33 6 62 84 60 87'), '06.62.84.60.87');
 
   const record = buildContactRecord({ telephone: '0123456789', email: 'contact@exemple.fr' }, { note: 'Standard 9h-17h' });
   assert.equal(record.source, 'Saisie manuelle (Company Locator)');
@@ -128,7 +130,6 @@ test('Enregistrement local par SIRET', () => {
   assert.equal(userContacts.get('00000000000000'), null);
   assert.equal(userContacts.list().length, 1);
 
-  // Une saisie vide n'écrase pas silencieusement : buildContactRecord renvoie null.
   assert.equal(buildContactRecord({}), null);
   assert.equal(buildContactRecord({ email: 'invalide' }), null);
 
@@ -136,11 +137,11 @@ test('Enregistrement local par SIRET', () => {
   assert.equal(userContacts.get(SIRET), null);
 
   userContacts.save(SIRET, record);
-  purgeUserData();
+  purgeEverything();
   assert.equal(userContacts.get(SIRET), null, 'purgé avec les autres données locales');
 });
 
-test('Exports et fiche transmise : les coordonnées suivent l’établissement', () => {
+test('Fiche transmise au formulaire : les coordonnées suivent l’établissement', () => {
   const fiche = {
     row: {
       etablissement: {
@@ -153,28 +154,13 @@ test('Exports et fiche transmise : les coordonnées suivent l’établissement',
     contacts: { telephone: '0123456789', mobile: '0612345678', email: 'contact@exemple.fr', contact: 'Marie Dupont', note: '' },
   };
 
-  // `ficheFields` attend la fiche aplatie (comme l'export CSV de l'application).
-  const flat = {
-    etablissement: fiche.row.etablissement,
-    entreprise: fiche.row.entreprise,
-    position: fiche.position,
-    contacts: fiche.contacts,
-  };
-  const fields = Object.fromEntries(ficheFields(flat).map(([label, value]) => [label, value]));
-  assert.equal(fields['Téléphone fixe'], '01 23 45 67 89');
-  assert.equal(fields['Téléphone mobile'], '06 12 34 56 78');
-  assert.equal(fields['E-mail'], 'contact@exemple.fr');
-  assert.equal(fields['Contact'], 'Marie Dupont');
-
   const payload = selectionPayload(fiche);
   assert.equal(payload.telephone, '0123456789');
   assert.equal(payload.mobile, '0612345678');
   assert.equal(payload.email, 'contact@exemple.fr');
   assert.equal(payload.contact, 'Marie Dupont');
 
-  // Sans coordonnées, rien n'est inventé.
   const bare = selectionPayload({ row: fiche.row, position: null, contacts: null });
   assert.equal(bare.telephone, '');
   assert.equal(bare.email, '');
-  assert.ok(!ficheFields({ ...flat, contacts: null }).some(([label]) => label === 'Téléphone fixe'));
 });
