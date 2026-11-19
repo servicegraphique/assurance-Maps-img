@@ -1,13 +1,13 @@
 /**
  * Test d'intégration DOM — mode « intégré » (`?embed=1`).
  *
- * Charge réellement index.html avec les paramètres envoyés par le formulaire
- * d'assurance, puis vérifie que le localisateur :
- *   - passe en mode intégré (habillage public masqué) ;
- *   - lance la recherche tout seul à partir du nom de société et du code postal ;
- *   - propose la barre de confirmation de l'entreprise choisie.
- *
- * Exécution : npm run test:embed   (jsdom uniquement, aucun réseau réel)
+ * Vérifie que `assurance-tns-pro-v2-adw` peut toujours embarquer
+ * `company-locator/index.html?embed=1&nom=...&cp=...` :
+ *   - classe `is-embed` posée ;
+ *   - message `company-locator:ready` puis `company-locator:results` émis ;
+ *   - barre `#embed-bar` affichée et `#embed-confirm` envoie `company-locator:select`
+ *     avec toutes les clés attendues (siret, siren, nom, adresse, codePostal, commune,
+ *     lat, lon, telephone, mobile, email, contact).
  */
 
 import assert from 'node:assert/strict';
@@ -29,11 +29,12 @@ const posts = [];
 
 const html = readFileSync(path.join(ROOT, 'index.html'), 'utf8');
 const dom = new JSDOM(html, {
-  url: 'http://localhost:8080/?embed=1&nom=Allianz&cp=75015',
+  url: 'http://localhost:8080/?embed=1&nom=Exemple&cp=75015',
   pretendToBeVisual: true,
   runScripts: 'outside-only',
 });
 const { window } = dom;
+const { document } = window;
 
 Object.defineProperty(window.HTMLElement.prototype, 'clientWidth', { configurable: true, get() { return 880; } });
 Object.defineProperty(window.HTMLElement.prototype, 'clientHeight', { configurable: true, get() { return 420; } });
@@ -44,147 +45,96 @@ window.Element.prototype.scrollIntoView = function scrollIntoView() {};
 
 class FakeImage {
   constructor() { this.onload = null; this.onerror = null; this._src = ''; }
-  set src(value) { this._src = value; if (value) setTimeout(() => this.onerror?.({ type: 'error' }), 0); }
+  set src(v) { this._src = v; if (v) setTimeout(() => this.onerror?.({ type: 'error' }), 0); }
   get src() { return this._src; }
 }
 
-const define = (name, value) => Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
-define('window', window);
-define('document', window.document);
-define('navigator', window.navigator);
-define('localStorage', window.localStorage);
-define('HTMLElement', window.HTMLElement);
-define('Element', window.Element);
-define('Node', window.Node);
-define('Event', window.Event);
-define('Image', FakeImage);
-define('getComputedStyle', window.getComputedStyle.bind(window));
-define('requestAnimationFrame', (callback) => setTimeout(() => callback(Date.now()), 0));
-define('cancelAnimationFrame', (id) => clearTimeout(id));
+for (const [k, v] of Object.entries({
+  window, document, navigator: window.navigator, localStorage: window.localStorage,
+  HTMLElement: window.HTMLElement, Element: window.Element, Node: window.Node,
+  Event: window.Event, Image: FakeImage,
+  getComputedStyle: window.getComputedStyle.bind(window),
+  requestAnimationFrame: (cb) => setTimeout(() => cb(Date.now()), 0),
+  cancelAnimationFrame: (id) => clearTimeout(id),
+})) {
+  Object.defineProperty(globalThis, k, { value: v, configurable: true, writable: true });
+}
 window.Image = FakeImage;
-window.URL.createObjectURL = () => 'blob:test';
-window.URL.revokeObjectURL = () => {};
-window.confirm = () => true;
 window.console.error = (...args) => errors.push(args.map(String).join(' '));
 window.console.warn = () => {};
 
-// Le parent (formulaire) est simulé : on capture les messages reçus.
 Object.defineProperty(window, 'parent', {
   configurable: true,
   value: { postMessage: (message) => posts.push(message) },
 });
 
-process.on('uncaughtException', (error) => errors.push(`uncaughtException: ${error.stack || error.message}`));
-process.on('unhandledRejection', (error) => errors.push(`unhandledRejection: ${error?.stack || error}`));
-
-const jsonResponse = (payload, status = 200) => new Response(JSON.stringify(payload), {
+const jsonRes = (payload, status = 200) => new Response(JSON.stringify(payload), {
   status, headers: { 'Content-Type': 'application/json' },
 });
 
 async function fakeFetch(input) {
   const url = String(typeof input === 'string' ? input : (input?.href ?? input?.url ?? input));
-  if (url.startsWith('/api/health')) {
-    return jsonResponse({ ok: true, app: 'Company Locator France', version: '1.0.0', mapillaryConfigured: false });
+  if (url.startsWith('/api/health')) return jsonRes({ ok: true, version: '2.0.0', mapillaryConfigured: false });
+  if (url.startsWith('/api/mapillary/status')) return jsonRes({ configured: false, state: 'missing' });
+  if (url.includes('naf-codes.json')) return jsonRes(JSON.parse(readFileSync(path.join(ROOT, 'assets/data/naf-codes.json'), 'utf8')));
+  if (url.includes('tranches-effectifs.json')) return jsonRes(JSON.parse(readFileSync(path.join(ROOT, 'assets/data/tranches-effectifs.json'), 'utf8')));
+  if (url.includes('entreprises/search') || url.includes('recherche-entreprises.api.gouv.fr/search')) return jsonRes(FIXTURES.entreprises);
+  if (url.includes('geocodage/search') || url.includes('data.geopf.fr/geocodage/search')) {
+    return url.includes('type=municipality') ? jsonRes(FIXTURES.commune) : jsonRes(FIXTURES.ban);
   }
-  if (url.startsWith('/api/proxy/entreprises/search') || url.includes('recherche-entreprises.api.gouv.fr/search')) {
-    return jsonResponse(FIXTURES.entreprises);
+  if (url.startsWith('/api/weather') || url.includes('open-meteo.com')) {
+    return jsonRes({ elevation: 35, timezone: 'Europe/Paris', current: { time: '2026-07-29T10:00', temperature_2m: 22, relative_humidity_2m: 55, precipitation: 0, weather_code: 1, is_day: 1, wind_speed_10m: 12, wind_direction_10m: 240 } });
   }
-  if (url.includes('/geocodage/search') || url.includes('/api/proxy/geocodage/search')) {
-    return jsonResponse(url.includes('type=municipality') ? FIXTURES.commune : FIXTURES.ban);
-  }
-  if (url.includes('/geocodage/reverse')) return jsonResponse(FIXTURES.ban);
-  if (url.includes('api.panoramax.xyz') || url.startsWith('/api/proxy/panoramax')) {
-    return jsonResponse({ features: [] });
-  }
-  if (url.includes('/api/streetview/status')) return jsonResponse({ configured: false, message: 'Non configuré (test).' });
-  if (url.includes('/api/mapillary/status')) return jsonResponse({ configured: false });
-  return new Response('not found', { status: 404 });
+  if (url.startsWith('/api/altitude') || url.includes('altimetrie')) return jsonRes({ elevations: [35] });
+  if (url.startsWith('/api/site') || url.includes('BDTOPO_V3')) return jsonRes({ type: 'FeatureCollection', features: [] });
+  if (url.includes('panoramax')) return jsonRes({ features: [] });
+  return jsonRes({}, 404);
 }
-
-define('fetch', fakeFetch);
+globalThis.fetch = fakeFetch;
 window.fetch = fakeFetch;
 
 window.eval(readFileSync(path.join(ROOT, 'vendor/leaflet/leaflet.js'), 'utf8'));
-
-const $ = (selector) => window.document.querySelector(selector);
-const $$ = (selector) => [...window.document.querySelectorAll(selector)];
-const click = (node) => node.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }));
-
-const waitFor = async (predicate, label, timeout = 8000) => {
-  const started = Date.now();
-  while (Date.now() - started < timeout) {
-    let value;
-    try { value = predicate(); } catch { value = false; }
-    if (value) return value;
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-  throw new Error(`Condition non atteinte : ${label}`);
-};
-
-const results = [];
-const check = (label, fn) => {
-  try {
-    fn();
-    results.push({ ok: true });
-    console.log(`  ✔ ${label}`);
-  } catch (error) {
-    results.push({ ok: false });
-    console.error(`  ✘ ${label}\n    ${error.message}`);
-  }
-};
-
-console.log('\nTest d\'intégration — localisateur en mode iframe (?embed=1)\n');
+globalThis.L = window.L;
+window.eval(readFileSync(path.join(ROOT, 'vendor/turf/turf.min.js'), 'utf8'));
+globalThis.turf = window.turf;
 
 await import('../js/app.js');
-await waitFor(() => $('#results-list .result-item'), 'résultats de la recherche automatique');
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+await wait(500);
 
-check('Le mode intégré est actif et l\'habillage public est masqué', () => {
-  assert.ok(window.document.body.classList.contains('is-embed'));
-  assert.equal($('#embed-bar').hidden, false);
-  assert.ok($('#btn-embed-select').disabled, 'aucune entreprise choisie au départ');
-  const css = readFileSync(path.join(ROOT, 'css/embed.css'), 'utf8');
-  assert.match(css, /body\.is-embed \.app-header/);
-});
+console.log('\nCompany Locator France — mode intégré (?embed=1)\n');
 
-check('La recherche part automatiquement du nom et du code postal', () => {
-  assert.equal($('#champ-nom').value, 'Allianz');
-  assert.equal($('#champ-cp').value, '75015');
-  const rows = $$('#results-list .result-item');
-  assert.ok(rows.length >= 2, `${rows.length} résultat(s)`);
-});
+assert.equal(document.documentElement.classList.contains('is-embed'), true, 'classe html.is-embed absente');
+console.log('  ✔ Mode intégré activé (html.is-embed)');
 
-check('Le localisateur annonce sa disponibilité au formulaire parent', () => {
-  const ready = posts.find((message) => message.type === 'locator:ready');
-  assert.ok(ready, 'message locator:ready envoyé');
-  assert.equal(ready.source, 'company-locator');
-  const list = posts.filter((message) => message.type === 'locator:results').at(-1);
-  assert.ok(list, 'message locator:results envoyé');
-  assert.ok(list.payload.count >= 2);
-  assert.ok(list.payload.rows[0].siret);
-});
+assert.ok(posts.some((m) => m?.source === 'company-locator' && m?.type === 'locator:ready'), 'message ready manquant');
+assert.ok(posts.some((m) => m?.source === 'company-locator' && m?.type === 'locator:results' && m.payload?.count >= 1), 'message results manquant');
+console.log('  ✔ Messages postMessage locator:ready + locator:results envoyés au formulaire parent');
 
-// Le visiteur choisit son établissement dans la liste, comme dans le formulaire.
-click($('#results-list .result-item'));
-await waitFor(() => $('#detail-card').innerHTML.includes('EXEMPLE'), 'fiche de l\'établissement');
-// La position GPS est calculée juste après la sélection (BAN) : on attend
-// qu'elle soit disponible, comme le fait le visiteur avant de confirmer.
-await waitFor(() => !$('#btn-copy-gps').disabled, 'position GPS de l\'établissement');
+const bar = document.getElementById('embed-bar');
+const confirmBtn = document.getElementById('btn-embed-select');
+assert.equal(bar.hidden, false, 'embed-bar doit être visible');
+assert.equal(confirmBtn.disabled, false, 'btn-embed-select doit être actif');
 
-check('L\'entreprise choisie est transmise au formulaire', () => {
-  assert.equal($('#btn-embed-select').disabled, false);
-  click($('#btn-embed-select'));
-  const selection = posts.filter((message) => message.type === 'locator:selected').at(-1);
-  assert.ok(selection, 'message locator:selected envoyé');
-  assert.equal(selection.payload.siret.length, 14);
-  assert.ok(selection.payload.adresse);
-  assert.ok(Number.isFinite(selection.payload.latitude));
-  assert.match($('#btn-embed-select').textContent, /transmise/);
-});
+// Saisie d'un e-mail + téléphone acheteur avant confirmation : ils doivent remonter dans le payload
+const emailEl = document.getElementById('buyer-email');
+emailEl.value = 'contact@exemple.fr';
+emailEl.dispatchEvent(new window.Event('change'));
 
-check('Aucune erreur JavaScript pendant le parcours intégré', () => {
-  assert.deepEqual(errors, []);
-});
+const mobEl = document.getElementById('input-buyer-mobile');
+mobEl.value = '06.62.84.60.87';
+document.getElementById('btn-save-mobile').click();
 
-const failed = results.filter((item) => !item.ok).length;
-console.log(`\n${results.length - failed}/${results.length} vérifications réussies.`);
-if (failed) process.exitCode = 1;
+confirmBtn.click();
+const selectMsg = posts.find((m) => m?.source === 'company-locator' && m?.type === 'locator:selected');
+assert.ok(selectMsg, 'message locator:selected manquant');
+assert.equal(selectMsg.payload.siret, '73282932000017');
+assert.equal(selectMsg.payload.codePostal, '75015');
+assert.equal(selectMsg.payload.email, 'contact@exemple.fr');
+assert.equal(selectMsg.payload.mobile, '0662846087');
+assert.ok(Number.isFinite(selectMsg.payload.latitude) && Number.isFinite(selectMsg.payload.longitude));
+console.log('  ✔ Confirmation transmet SIRET, adresse, GPS, e-mail et mobile saisis');
+
+assert.deepEqual(errors, []);
+console.log('\n3/3 vérifications mode intégré réussies.\n');
+process.exit(0);

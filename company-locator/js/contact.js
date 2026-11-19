@@ -89,6 +89,13 @@ export function formatPhoneFr(value) {
   return digits.replace(/(\d{2})(?=\d)/g, '$1 ').trim();
 }
 
+/** « 0662846087 » → « 06.62.84.60.87 » (format fiche CRM). */
+export function formatPhoneDots(value) {
+  const digits = normalizePhoneFr(value) || String(value ?? '').replace(/\D/g, '');
+  if (digits.length !== 10) return String(value ?? '').trim();
+  return digits.replace(/(\d{2})(?=\d)/g, '$1.');
+}
+
 /** Lien `tel:` international (E.164) prêt pour un `<a href>`. */
 export function phoneHref(value) {
   const digits = normalizePhoneFr(value);

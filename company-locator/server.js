@@ -38,7 +38,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { weatherUrl } from './js/weather-data.js';
-import { siteUrl, SITE_SOURCES } from './js/site-data.js';
+import { siteUrl, altitudeUrl, SITE_SOURCES } from './js/site-data.js';
 import { resolveMapillaryToken, mapillaryStatusPayload, MAPILLARY_DASHBOARD_URL } from './js/mapillary-config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -334,7 +334,6 @@ async function handleMapillary(request, response, url) {
 const PUBLIC_PROXIES = {
   '/api/proxy/entreprises': { target: 'https://recherche-entreprises.api.gouv.fr', paths: ['/search'] },
   '/api/proxy/geocodage': { target: 'https://data.geopf.fr/geocodage', paths: ['/search', '/reverse'] },
-  '/api/proxy/earthsearch': { target: 'https://earth-search.aws.element84.com/v1', paths: ['/search'] },
   '/api/proxy/panoramax': { target: 'https://api.panoramax.xyz/api', paths: ['/search'] },
 };
 
@@ -441,6 +440,19 @@ async function handleSite(request, response, url) {
   } catch (error) {
     return sendJson(response, 502, { error: 'Service distant inaccessible' });
   }
+}
+
+// Relais altimétrie IGN limité à des coordonnées numériques bornées.
+async function handleAltitude(request, response, url) {
+  const latText = url.searchParams.get('lat'), lonText = url.searchParams.get('lon');
+  const lat = Number(latText), lon = Number(lonText);
+  if (!latText || !lonText || !Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180 || [...url.searchParams.keys()].some(k => !['lat', 'lon'].includes(k))) return sendJson(response, 400, { error: 'Paramètres invalides' });
+  if (publicRateLimited()) return sendJson(response, 429, { error: 'Trop de requêtes' });
+  try {
+    const upstream = await fetch(altitudeUrl(lat, lon), { signal: AbortSignal.timeout(12000), headers: { Accept: 'application/json', 'User-Agent': 'CompanyLocatorFrance/2.0' }, redirect: 'error' });
+    if (!upstream.ok) return sendJson(response, upstream.status, { error: 'Service altimétrie indisponible' });
+    return sendJson(response, 200, await upstream.json());
+  } catch { return sendJson(response, 502, { error: 'Service altimétrie inaccessible' }); }
 }
 
 // Relais météo limité à une URL et des coordonnées numériques, sans paramètres libres.
@@ -580,13 +592,15 @@ const server = http.createServer(async (request, response) => {
 
   if (url.pathname === '/api/weather') return handleWeather(request, response, url);
 
+  if (url.pathname === '/api/altitude') return handleAltitude(request, response, url);
+
   if (url.pathname === '/api/site') return handleSite(request, response, url);
 
   if (url.pathname === '/api/health') {
     return sendJson(response, 200, {
       ok: true,
       app: 'Company Locator France',
-      version: '1.0.0',
+      version: '2.0.0',
       mapillaryConfigured: Boolean(TOKEN),
       mapillaryState: MAPILLARY.state,
       googleStreetViewConfigured: Boolean(GOOGLE_KEY),

@@ -1,11 +1,12 @@
 /**
- * Test d'intégration DOM — charge réellement index.html, Leaflet et js/app.js
- * dans un DOM simulé (jsdom), avec des réponses d'API rejouées depuis les
- * fixtures. Vérifie le parcours complet : recherche → résultats → carte →
- * fiche → géocodage → images → export → paramètres → historique.
+ * Test d'intégration DOM — Fiche CRM Company Locator France (v2.0.0).
  *
- * Exécution : npm run test:dom   (nécessite `npm install`, jsdom uniquement)
- * Aucun réseau réel n'est utilisé.
+ * Charge réellement index.html + Leaflet + Turf + js/app.js dans jsdom
+ * avec des réponses d'API simulées, et vérifie l'intégralité des blocs de
+ * la fiche : Coordonnées Acheteurs, Demande de devis, Localisation,
+ * Vue satellite, Météo actuelle, Note financière, Consommation d'électricité,
+ * Vue de la rue, les 5 cartes d'indicateurs, RAC / Prelead / Génération de lead,
+ * Mise en relation, persistance locale et barre de recherche masquable.
  */
 
 import assert from 'node:assert/strict';
@@ -16,23 +17,80 @@ import { JSDOM } from 'jsdom';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const readJson = (name) => JSON.parse(readFileSync(path.join(ROOT, 'tests/fixtures', name), 'utf8'));
-
 const FIXTURES = {
   entreprises: readJson('recherche-entreprises.json'),
   ban: readJson('ban-search.json'),
-  commune: readJson('ban-commune.json'),
   panoramax: readJson('panoramax-search.json'),
-  mapillary: readJson('mapillary-images.json'),
+};
+
+const ROGNAC_FIXTURE = {
+  results: [{
+    siren: '883292302',
+    nom_complet: 'ABIOTECH-MTS',
+    nom_raison_sociale: 'ABIOTECH-MTS',
+    etat_administratif: 'A',
+    activite_principale: '68.20B',
+    date_creation: '2020-03-01',
+    tranche_effectif_salarie: 'NN',
+    dirigeants: [{ nom: 'RICHARD', prenoms: 'MARC', qualite: 'Gérant', type_dirigeant: 'personne physique' }],
+    finances: { 2024: { ca: 540000, resultat_net: 48000 }, 2023: { ca: 515000, resultat_net: 44000 } },
+    siege: {
+      siret: '88329230200014',
+      est_siege: true,
+      etat_administratif: 'A',
+      liste_enseignes: ['2MR'],
+      nom_commercial: '2MR',
+      numero_voie: '4',
+      type_voie: 'RUE',
+      libelle_voie: 'DU LAVOIR',
+      adresse: '4 RUE DU LAVOIR 13340 ROGNAC',
+      code_postal: '13340',
+      libelle_commune: 'ROGNAC',
+      commune: '13081',
+      departement: '13',
+      activite_principale: '68.20B',
+      date_creation: '2020-03-01',
+      latitude: '43.4538',
+      longitude: '5.1921',
+    },
+    matching_etablissements: [],
+  }],
+  total_results: 1,
+  page: 1,
+  per_page: 25,
+  total_pages: 1,
+};
+
+const ROGNAC_BAN = {
+  type: 'FeatureCollection',
+  features: [{
+    type: 'Feature',
+    geometry: { type: 'Point', coordinates: [5.1921, 43.4538] },
+    properties: {
+      label: '4 Rue du Lavoir 13340 Rognac',
+      score: 0.96,
+      type: 'housenumber',
+      name: '4 Rue du Lavoir',
+      postcode: '13340',
+      city: 'Rognac',
+      citycode: '13081',
+    },
+  }],
+};
+
+const ROGNAC_BDTOPO = {
+  type: 'FeatureCollection',
+  features: [{
+    type: 'Feature',
+    properties: { usage_1: 'Industriel', hauteur: 8 },
+    geometry: {
+      type: 'Polygon',
+      coordinates: [[[5.19185, 43.45366], [5.19235, 43.45366], [5.19235, 43.45394], [5.19185, 43.45394], [5.19185, 43.45366]]],
+    },
+  }],
 };
 
 const errors = [];
-const downloads = [];
-const networkCalls = [];
-
-/* ------------------------------------------------------------------ */
-/* 1. DOM + globaux navigateur                                         */
-/* ------------------------------------------------------------------ */
-
 const html = readFileSync(path.join(ROOT, 'index.html'), 'utf8');
 const dom = new JSDOM(html, {
   url: 'http://localhost:8080/',
@@ -40,587 +98,227 @@ const dom = new JSDOM(html, {
   runScripts: 'outside-only',
 });
 const { window } = dom;
+const { document } = window;
 
-// jsdom ne calcule pas la mise en page : on donne une taille aux conteneurs
-// pour que Leaflet puisse initialiser la carte.
-Object.defineProperty(window.HTMLElement.prototype, 'clientWidth', { configurable: true, get() { return 900; } });
-Object.defineProperty(window.HTMLElement.prototype, 'clientHeight', { configurable: true, get() { return 460; } });
+Object.defineProperty(window.HTMLElement.prototype, 'clientWidth', { configurable: true, get() { return 400; } });
+Object.defineProperty(window.HTMLElement.prototype, 'clientHeight', { configurable: true, get() { return 260; } });
 window.Element.prototype.getBoundingClientRect = function getBoundingClientRect() {
-  return { width: 900, height: 460, top: 0, left: 0, right: 900, bottom: 460, x: 0, y: 0, toJSON() { return this; } };
+  return { width: 400, height: 260, top: 0, left: 0, right: 400, bottom: 260, x: 0, y: 0, toJSON() { return this; } };
 };
 window.Element.prototype.scrollIntoView = function scrollIntoView() {};
 
 class FakeImage {
   constructor() { this.onload = null; this.onerror = null; this._src = ''; }
-  set src(value) {
-    this._src = value;
-    if (value) setTimeout(() => this.onerror?.({ type: 'error' }), 0);
-  }
+  set src(v) { this._src = v; if (v) setTimeout(() => this.onload?.({ type: 'load' }), 0); }
   get src() { return this._src; }
 }
 
-const define = (name, value) => Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
-define('window', window);
-define('document', window.document);
-define('navigator', window.navigator);
-define('localStorage', window.localStorage);
-define('HTMLElement', window.HTMLElement);
-define('Element', window.Element);
-define('Node', window.Node);
-define('Event', window.Event);
-define('Image', FakeImage);
-define('FormData', window.FormData);
-define('getComputedStyle', window.getComputedStyle.bind(window));
-define('requestAnimationFrame', (callback) => setTimeout(() => callback(Date.now()), 0));
-define('cancelAnimationFrame', (id) => clearTimeout(id));
+for (const [k, v] of Object.entries({
+  window, document, navigator: window.navigator, localStorage: window.localStorage,
+  HTMLElement: window.HTMLElement, Element: window.Element, Node: window.Node,
+  Event: window.Event, KeyboardEvent: window.KeyboardEvent, Image: FakeImage,
+  getComputedStyle: window.getComputedStyle.bind(window),
+  requestAnimationFrame: (cb) => setTimeout(() => cb(Date.now()), 0),
+  cancelAnimationFrame: (id) => clearTimeout(id),
+})) {
+  Object.defineProperty(globalThis, k, { value: v, configurable: true, writable: true });
+}
 window.Image = FakeImage;
-window.URL.createObjectURL = () => 'blob:test';
-window.URL.revokeObjectURL = () => {};
-window.confirm = () => true;
 window.console.error = (...args) => errors.push(args.map(String).join(' '));
 window.console.warn = () => {};
+process.on('uncaughtException', (e) => errors.push(`uncaught: ${e.stack || e}`));
+process.on('unhandledRejection', (e) => errors.push(`unhandled: ${e?.stack || e}`));
 
-// Capture des téléchargements (export CSV / GeoJSON / JSON).
-window.HTMLAnchorElement.prototype.click = function click() {
-  if (this.download) downloads.push(this.download);
-};
-
-process.on('uncaughtException', (error) => errors.push(`uncaughtException: ${error.stack || error.message}`));
-process.on('unhandledRejection', (error) => errors.push(`unhandledRejection: ${error?.stack || error}`));
-
-/* ------------------------------------------------------------------ */
-/* 2. Réseau simulé                                                    */
-/* ------------------------------------------------------------------ */
-
-const jsonResponse = (payload, status = 200) => new Response(JSON.stringify(payload), {
+const jsonRes = (data, status = 200) => new Response(JSON.stringify(data), {
   status, headers: { 'Content-Type': 'application/json' },
 });
 
 async function fakeFetch(input) {
   const url = String(typeof input === 'string' ? input : (input?.href ?? input?.url ?? input));
-  networkCalls.push(url);
-
-  if (url.startsWith('file://')) {
-    const filePath = fileURLToPath(url);
-    try {
-      return new Response(readFileSync(filePath, 'utf8'), { status: 200, headers: { 'Content-Type': 'application/json' } });
-    } catch {
-      return new Response('not found', { status: 404 });
+  if (url.startsWith('/api/health')) return jsonRes({ ok: true, app: 'Company Locator France', version: '2.0.0', mapillaryConfigured: false });
+  if (url.startsWith('/api/mapillary/status')) return jsonRes({ configured: false, state: 'missing' });
+  if (url.includes('naf-codes.json')) {
+    return jsonRes(JSON.parse(readFileSync(path.join(ROOT, 'assets/data/naf-codes.json'), 'utf8')));
+  }
+  if (url.includes('tranches-effectifs.json')) {
+    return jsonRes(JSON.parse(readFileSync(path.join(ROOT, 'assets/data/tranches-effectifs.json'), 'utf8')));
+  }
+  if (url.includes('entreprises/search') || url.includes('recherche-entreprises.api.gouv.fr/search')) {
+    if (url.includes('88329230200014')) return jsonRes(ROGNAC_FIXTURE);
+    return jsonRes(FIXTURES.entreprises);
+  }
+  if (url.includes('geocodage/search') || url.includes('data.geopf.fr/geocodage/search')) {
+    if (url.includes('13340') || url.toLowerCase().includes('rognac')) return jsonRes(ROGNAC_BAN);
+    return jsonRes(FIXTURES.ban);
+  }
+  if (url.startsWith('/api/weather') || url.includes('api.open-meteo.com')) {
+    return jsonRes({
+      elevation: 45,
+      timezone: 'Europe/Paris',
+      current: {
+        time: '2026-07-29T11:45',
+        temperature_2m: 26.1,
+        relative_humidity_2m: 52,
+        precipitation: 0,
+        weather_code: 2,
+        is_day: 1,
+        wind_speed_10m: 18.2,
+        wind_direction_10m: 268,
+      },
+    });
+  }
+  if (url.startsWith('/api/altitude') || url.includes('altimetrie')) {
+    return jsonRes({ elevations: [45.2] });
+  }
+  if (url.startsWith('/api/site') || url.includes('BDTOPO_V3')) {
+    return jsonRes(ROGNAC_BDTOPO);
+  }
+  if (url.includes('panoramax')) {
+    if (url.includes('43.45')) {
+      return jsonRes({
+        features: [{
+          id: 'rognac-pic-1',
+          geometry: { type: 'Point', coordinates: [5.1920, 43.4537] },
+          assets: {
+            sd: { href: 'https://panoramax.example/rognac-sd.jpg' },
+            thumb: { href: 'https://panoramax.example/rognac-thumb.jpg' },
+          },
+          properties: {
+            datetime: '2025-06-12T10:15:00Z',
+            'view:azimuth': 42,
+            'pers:interior_orientation': { field_of_view: 90 },
+            'geovisio:producer': 'Contributeur OSM',
+            license: 'CC-BY-SA-4.0',
+          },
+          links: [],
+        }],
+      });
     }
+    return jsonRes(FIXTURES.panoramax);
   }
-
-  if (url.startsWith('https://earth-search.aws.element84.com/v1/search') || url.startsWith('/api/proxy/earthsearch/search')) {
-    const params = new URL(url, 'http://localhost:8080').searchParams;
-    const date = params.get('datetime').split('/')[0];
-    return jsonResponse({ features: [{ properties: { datetime: date, 'eo:cloud_cover': 15 }, assets: { thumbnail: { href: 'https://sentinel-cogs.s3.us-west-2.amazonaws.com/test/preview.jpg' } }, links: [{ rel: 'self', href: 'https://earth-search.aws.element84.com/v1/collections/sentinel-2-l2a/items/test' }] }] });
-  }
-
-  if (url.startsWith('/api/weather')) {
-    const time = Array.from({ length: 15 }, (_, i) => `2025-01-${String(i + 1).padStart(2, '0')}`);
-    return jsonResponse({ timezone: 'Europe/Paris', current: { time: '2025-01-15T12:00', temperature_2m: 8, weather_code: 3 }, daily: { time, weather_code: time.map(() => 0), temperature_2m_min: time.map(() => 2), temperature_2m_max: time.map(() => 9), precipitation_sum: time.map(() => 0), wind_speed_10m_max: time.map(() => 10) } });
-  }
-
-  if (url.startsWith('/api/health')) {
-    return jsonResponse({ ok: true, app: 'Company Locator France', version: '1.0.0', mapillaryConfigured: true });
-  }
-
-  if (url.startsWith('/api/proxy/entreprises/search') || url.includes('recherche-entreprises.api.gouv.fr/search')) {
-    const params = new URL(url, 'http://localhost:8080').searchParams;
-    const q = params.get('q') || '';
-    if (q === 'dinum') return jsonResponse({ results: [], total_results: 0, page: 1, per_page: 1, total_pages: 0 });
-    if (q.startsWith('siren:')) {
-      const siren = q.slice(6);
-      const found = FIXTURES.entreprises.results.filter((r) => r.siren === siren);
-      return jsonResponse({ ...FIXTURES.entreprises, results: found, total_results: found.length, total_pages: found.length ? 1 : 0 });
-    }
-    if (/^\d{14}$/.test(q)) {
-      const results = FIXTURES.entreprises.results.filter((r) => r.siege?.siret === q
-        || (r.matching_etablissements || []).some((e) => e.siret === q));
-      return jsonResponse({ ...FIXTURES.entreprises, results, total_results: results.length, total_pages: results.length ? 1 : 0 });
-    }
-    if (/introuvable|zzzz/i.test(q)) {
-      return jsonResponse({ results: [], total_results: 0, page: 1, per_page: 10, total_pages: 0 });
-    }
-    return jsonResponse(FIXTURES.entreprises);
-  }
-
-  if (url.includes('/geocodage/search') || url.includes('/api/proxy/geocodage/search')) {
-    return jsonResponse(url.includes('type=municipality') ? FIXTURES.commune : FIXTURES.ban);
-  }
-  if (url.includes('/geocodage/reverse')) return jsonResponse(FIXTURES.ban);
-  if (url.includes('api.panoramax.xyz') || url.startsWith('/api/proxy/panoramax')) return jsonResponse(FIXTURES.panoramax);
-  if (url.includes('/api/streetview/status')) return jsonResponse({ configured: false, message: 'Non configuré (test).' });
-  if (url.includes('/api/mapillary/status')) return jsonResponse({ configured: true });
-  if (url.includes('/api/mapillary/images')) return jsonResponse(FIXTURES.mapillary);
-
-  return new Response('not found', { status: 404 });
+  return jsonRes({ error: `unexpected ${url}` }, 404);
 }
-
-define('fetch', fakeFetch);
+globalThis.fetch = fakeFetch;
 window.fetch = fakeFetch;
 
-/* ------------------------------------------------------------------ */
-/* 3. Leaflet puis application                                         */
-/* ------------------------------------------------------------------ */
-
+// Chargement de Leaflet et Turf dans la fenêtre avant app.js
 window.eval(readFileSync(path.join(ROOT, 'vendor/leaflet/leaflet.js'), 'utf8'));
-assert.ok(window.L, 'Leaflet doit être disponible depuis vendor/leaflet/leaflet.js');
-
-const waitFor = async (predicate, label, timeout = 8000) => {
-  const started = Date.now();
-  while (Date.now() - started < timeout) {
-    let value;
-    try { value = predicate(); } catch { value = false; }
-    if (value) return value;
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-  throw new Error(`Condition non atteinte : ${label}`);
-};
-
-const $ = (selector) => window.document.querySelector(selector);
-const $$ = (selector) => [...window.document.querySelectorAll(selector)];
-const click = (node) => node.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }));
-
-const results = [];
-const check = (label, fn) => {
-  try {
-    fn();
-    results.push({ label, ok: true });
-    console.log(`  ✔ ${label}`);
-  } catch (error) {
-    results.push({ label, ok: false, error });
-    console.error(`  ✘ ${label}\n    ${error.message}`);
-  }
-};
-
-console.log('\nTest d\'intégration DOM — Company Locator France\n');
+globalThis.L = window.L;
+window.eval(readFileSync(path.join(ROOT, 'vendor/turf/turf.min.js'), 'utf8'));
+globalThis.turf = window.turf;
 
 await import('../js/app.js');
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+await wait(450);
 
-/* ---------------------------- Démarrage ---------------------------- */
+const results = [];
+async function check(label, fn) {
+  try { await fn(); results.push({ ok: true }); console.log(`  ✔ ${label}`); }
+  catch (err) { results.push({ ok: false, err }); console.log(`  ✘ ${label}\n      ${err.message}`); }
+}
 
-await waitFor(() => $('#map .leaflet-pane'), 'initialisation de la carte Leaflet');
-check('La carte Leaflet est initialisée avec un fond de tuiles', () => {
-  assert.ok($('#map .leaflet-tile-pane'), 'panneau de tuiles présent');
-  assert.ok($('#map .leaflet-control-attribution'), 'attribution obligatoire affichée');
-});
-check('L\'état vide invite à lancer une recherche', () => {
-  assert.match($('#results-list').textContent, /Recherchez une entreprise française/);
-});
-await waitFor(() => $('#status-list li'), 'panneau d\'état des services');
-check('Les 5 services publics sont testés et listés', () => {
-  assert.equal($$('#status-list li').length, 5);
-});
+console.log('\nCompany Locator France — intégration DOM fiche CRM\n');
 
-/* ---------------------------- Recherche ---------------------------- */
-
-$('#champ-nom').value = 'SOCIETE DE TEST';
-$('#champ-cp').value = '75015';
-$('#search-form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
-
-await waitFor(() => $$('#results-list .result-item').length > 0, 'affichage des résultats');
-
-check('3 établissements actifs affichés (le fermé est filtré)', () => {
-  assert.equal($$('#results-list .result-item').length, 3);
-});
-check('Le résumé distingue établissements, sociétés et unités légales', () => {
-  const summary = $('#results-summary').textContent;
-  assert.match(summary, /3 établissements/);
-  assert.match(summary, /2 sociétés/);
-  assert.match(summary, /2 unités légales/);
-});
-check('Chaque résultat affiche SIRET, statut et adresse', () => {
-  const first = $('#results-list .result-item');
-  assert.match(first.textContent, /SIRET 732 829 320 00017/);
-  assert.match(first.textContent, /Actif/);
-  assert.match(first.textContent, /75015/);
-});
-check('Les exports sont activés après une recherche', () => {
-  assert.equal($('#btn-export-results').disabled, false);
-  assert.equal($('#btn-export-geojson').disabled, false);
-});
-check('La carte place un marqueur par établissement géolocalisé', () => {
-  assert.equal($$('#map .clf-marker').length, 3);
-});
-check('Le fond de carte n\'est pas présenté comme une photographie', () => {
-  assert.match($('#map-credits').textContent, /pas une photographie/);
+await check('Démarrage sans erreur console et garde __companyLocatorReady levé', () => {
+  assert.equal(window.__companyLocatorReady, true);
+  assert.deepEqual(errors, []);
 });
 
-/* ------------------------- Fiche détaillée ------------------------- */
-
-click($('#results-list .result-item'));
-await waitFor(() => !$('#detail-card').hidden && $('#titre-fiche'), 'ouverture de la fiche');
-await waitFor(() => !$('#btn-copy-gps').disabled, 'résolution des coordonnées GPS');
-
-check('La fiche présente les nouveaux onglets et aucune ancienne action', () => {
-  const tabs = $$('#detail-card .tab-btn');
-  assert.deepEqual(tabs.map((tab) => tab.textContent), [
-    'Voir toiture ou Parking', 'Images', 'Météo et Vue actuel du zone', 'Sources',
-  ]);
-  assert.equal(tabs[0].getAttribute('aria-selected'), 'true');
-  assert.ok($('#detail-card [data-panel="toiture"] #site-host'));
-  assert.equal($('#detail-card .detail-actions'), null);
-  assert.equal($('#contacts-section'), null);
-  assert.equal($('#gps-section'), null);
-  assert.equal($('#etab-host'), null);
-  assert.match($('#detail-card').textContent, /732 829 320/);
-  assert.match(window.location.hash, /^#\/etablissement\/\d{14}$/);
+await check('Coordonnées Acheteurs : société, badge actif, SIRET, NAF, date de création et acheteur', () => {
+  assert.equal(document.getElementById('co-name').textContent, 'ABIOTECH-MTS');
+  assert.equal(document.getElementById('co-enseigne').textContent, '2MR');
+  assert.equal(document.getElementById('co-street').textContent, '4 RUE DU LAVOIR');
+  assert.equal(document.getElementById('co-city').textContent, '13340 ROGNAC');
+  assert.equal(document.getElementById('co-status').textContent, 'Entreprise active');
+  assert.equal(document.getElementById('co-siret').textContent, '88329230200014');
+  assert.match(document.getElementById('co-naf').textContent, /^NAF\s+6820B – Location de terrains/i);
+  assert.equal(document.getElementById('co-created').textContent, 'Mars 2020');
+  assert.equal(document.getElementById('buyer-prenom').value, 'Marc');
+  assert.equal(document.getElementById('buyer-nom').value, 'RICHARD');
 });
 
-click($('#detail-card [data-tab="meteo"]'));
-await waitFor(() => $('#weather-host').textContent.includes('2025-01-08') && $('#weather-host').querySelectorAll('.satellite-preview').length === 2 && $('#weather-host').textContent.includes('hors période, pas une vue actuelle'), 'météo et satellite');
-check('La météo compare sept jours avant aux conditions actuelles sans prétendre afficher une image en direct', () => {
-  const panel = $('#detail-card [data-panel="meteo"]');
-  assert.equal(panel.hidden, false);
-  assert.match(panel.textContent, /2025-01-08/);
-  assert.match(panel.textContent, /2025-01-15T12:00/);
-  assert.match(panel.textContent, /Satellite Sentinel‑2/);
-  assert.equal(panel.querySelectorAll('.satellite-preview').length, 2);
-  assert.match(panel.textContent, /insuffisante pour identifier une toiture/);
-  assert.match(panel.textContent, /hors période, pas une vue actuelle/);
-  assert.match(panel.textContent, /pas une vidéo en direct/);
-  const select = panel.querySelector('select');
-  select.value = '14'; select.dispatchEvent(new window.Event('change'));
-  assert.match(panel.textContent, /2025-01-01/);
-});
-click($('#detail-card [data-tab="sources"]'));
-check('Les sources restent accessibles', () => {
-  assert.equal($('#detail-card [data-panel="sources"]').hidden, false);
-  assert.match($('#detail-card [data-panel="sources"]').textContent, /Licence Ouverte/);
+await check('Localisation et Vue satellite : cartes initialisées, coordonnées, altitude et lien Google Earth', () => {
+  assert.match(document.getElementById('loc-address').textContent, /4 Rue du Lavoir, 13340 Rognac, France/);
+  assert.equal(document.getElementById('loc-coords').textContent, '43.4538° N, 5.1921° E');
+  assert.equal(document.getElementById('loc-altitude').textContent, 'Altitude : 45 m');
+  assert.match(document.getElementById('btn-google-earth').href, /^https:\/\/earth\.google\.com\/web\/@43\.453800,5\.192100/);
 });
 
-/* ----------------------------- Images ------------------------------ */
-
-click([...$('#detail-card').querySelectorAll('.tab-btn')].find((button) => button.dataset.tab === 'images'));
-await waitFor(() => $('#aerial-map .leaflet-tile-pane'), 'initialisation de la vue aérienne IGN');
-await waitFor(() => $$('#street-host .photo-card').length > 0, 'chargement des photographies de rue');
-
-check('La vue aérienne utilise bien la couche BD ORTHO® de l\'IGN', () => {
-  const tiles = $$('#aerial-map img.leaflet-tile');
-  assert.ok(tiles.length > 0, 'tuiles demandées');
-  assert.ok(tiles.some((tile) => tile.src.includes('data.geopf.fr') && tile.src.includes('ORTHOIMAGERY')), 'WMTS IGN ortho');
-  assert.match($('#aerial-host').textContent, /BD ORTHO/);
-});
-check('La vue aérienne est explicitement une photographie, pas un plan', () => {
-  assert.match($('#detail-card').textContent, /Orthophotographie réelle, pas un plan/);
-});
-check('Les photos de rue Panoramax et Mapillary sont affichées avec source et date', () => {
-  const cards = $$('#street-host .photo-card');
-  assert.equal(cards.length, 3, '2 Panoramax + 1 Mapillary dans le rayon de 100 m');
-  const text = $('#street-host').textContent;
-  assert.match(text, /Panoramax/);
-  assert.match(text, /Mapillary/);
-  assert.match(text, /Prise de vue : \d{2}\/\d{2}\/\d{4}/);
-  assert.match(text, /Licence :/);
-  assert.match(text, /Voir la source/);
-});
-check('Le panneau indique le rayon de recherche et la limite d\'interprétation', () => {
-  assert.match($('#street-host').textContent, /rayon de 100 m/);
-});
-check('Les photographies complémentaires et leur formulaire ne sont plus affichés', () => {
-  assert.equal($('#complementary-host'), null);
-  assert.doesNotMatch($('#detail-card [data-panel="images"]').textContent, /Photographies complémentaires|Ajouter cette photographie vérifiée/);
+await check('Météo actuelle : titre ville+CP, température, vent, humidité, précipitations et MAJ', () => {
+  assert.equal(document.getElementById('weather-title').textContent, 'Météo actuelle à Rognac (13340)');
+  assert.equal(document.getElementById('weather-temp').textContent, '26°C');
+  assert.equal(document.getElementById('weather-desc').textContent, 'Partiellement nuageux');
+  assert.equal(document.getElementById('weather-wind').textContent, '18 km/h (O)');
+  assert.equal(document.getElementById('weather-humidity').textContent, '52%');
+  assert.equal(document.getElementById('weather-precip').textContent, '0 mm');
+  assert.equal(document.getElementById('weather-updated').textContent, '29/07/2026 11:45');
 });
 
-/* ---------------------------- Lightbox ----------------------------- */
-
-click($('#street-host .photo-thumb'));
-await waitFor(() => !$('#lightbox').hidden, 'ouverture de la lightbox');
-check('La lightbox affiche la photo, sa source et sa licence', () => {
-  assert.ok($('#lightbox-img').src);
-  assert.match($('#lightbox-caption').textContent, /Panoramax|Mapillary/);
-  assert.match($('#lightbox-caption').textContent, /1 \/ 3/);
-});
-click($('#lightbox-next'));
-check('La navigation entre photographies fonctionne', () => {
-  assert.match($('#lightbox-caption').textContent, /2 \/ 3/);
-});
-window.document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-check('Échap ferme la lightbox', () => assert.equal($('#lightbox').hidden, true));
-
-/* --------------------- D. Vue immersive Street View ---------------- */
-
-await waitFor(() => $$('#streetview-host .sv-provider').length > 0, 'rendu de la section immersive');
-
-check('La section « Vue immersive 360° » propose les trois sources', () => {
-  const labels = $$('#streetview-host .sv-provider').map((node) => node.textContent);
-  assert.equal(labels.length, 3);
-  assert.match(labels.join(' '), /Panoramax 360/);
-  assert.match(labels.join(' '), /Mapillary 360/);
-  assert.match(labels.join(' '), /Google Street View/);
+await check('Note financière et Consommation électrique (12 mois J–D) rendues', () => {
+  const score = Number(document.getElementById('fin-score').textContent);
+  assert.ok(score >= 70 && score <= 95);
+  assert.match(document.getElementById('fin-solvency').textContent, /Bonne|Excellente/);
+  assert.equal(document.getElementById('fin-year').textContent, '2024');
+  assert.match(document.getElementById('elec-month').textContent, /^\d[\d\s]*$/);
+  assert.match(document.getElementById('elec-year').textContent, /^\d[\d\s]*$/);
+  assert.equal(document.querySelectorAll('#elec-chart .elec-bar-col').length, 12);
 });
 
-check('Aucun iframe tiers n\'est créé avant un clic explicite', () => {
-  assert.equal($$('#streetview-host iframe').length, 0);
-  assert.equal(networkCalls.some((url) => url.includes('/api/streetview/embed')), false);
-  assert.ok($('#streetview-host .sv-launch'), 'bouton de chargement absent');
-  assert.match($('#streetview-host .sv-consent').textContent, /avant votre clic/);
-});
-
-check('Google Street View est annoncé indisponible avec sa vraie raison', () => {
-  const google = $$('#streetview-host .sv-provider').find((node) => /Google/.test(node.textContent));
-  assert.equal(google.disabled, true);
-  assert.match(google.title, /facturation activée/);
-});
-
-check('Panoramax est prêt sans clé et sélectionné par défaut', () => {
-  const panoramax = $$('#streetview-host .sv-provider').find((node) => /Panoramax/.test(node.textContent));
-  assert.equal(panoramax.disabled, false);
-  assert.equal(panoramax.classList.contains('is-active'), true);
-  assert.match(panoramax.textContent, /sans clé/);
-});
-
-click($('#streetview-host .sv-launch'));
-await waitFor(() => $$('#streetview-host iframe').length === 1, 'chargement du viewer immersif');
-
-check('Le clic charge le viewer immersif Panoramax dans un cadre durci', () => {
-  const frame = $('#streetview-host iframe');
-  assert.match(frame.src, /^https:\/\/api\.panoramax\.xyz\/#focus=pic&pic=/);
-  assert.match(frame.getAttribute('sandbox'), /allow-scripts/);
-  assert.match(frame.getAttribute('sandbox'), /allow-same-origin/);
-  assert.equal(frame.getAttribute('referrerpolicy'), 'no-referrer');
-  assert.equal(frame.getAttribute('allowfullscreen'), 'true');
-  assert.ok(frame.title.length > 10);
-});
-
-check('Aucun jeton ni clé dans l\'URL du cadre immersif', () => {
-  const src = $('#streetview-host iframe').src;
-  assert.equal(/access_token|client_token|key=|AIza|MLY\|/.test(src), false, src);
-});
-
-check('La source, la date et la licence de la vue immersive sont affichées', () => {
-  const caption = $('#streetview-host .sv-caption').textContent;
-  assert.match(caption, /Licence/);
-  assert.match(caption, /360° immersif|Photographie plane/);
-});
-
-const capAvant = $('#streetview-host iframe').src;
-const boutonDroite = $$('#streetview-host .sv-toolbar .btn').find((node) => /45°/.test(node.textContent));
-click(boutonDroite);
-await waitFor(() => $('#streetview-host iframe')?.src !== capAvant, 'réorientation du viewer');
-check('Le cap est pilotable et se répercute dans l\'URL du viewer', () => {
-  assert.match($('#streetview-host .sv-heading').textContent, /Cap \d+°/);
-  assert.notEqual($('#streetview-host iframe').src, capAvant);
-  assert.match($('#streetview-host iframe').src, /xyz=/);
-});
-
-const boutonNord = $$('#streetview-host .sv-compass .btn').find((node) => node.textContent === 'N');
-click(boutonNord);
-await waitFor(() => /xyz=0\.00\//.test($('#streetview-host iframe')?.src || ''), 'cap nord');
-check('Les points cardinaux orientent la vue', () => {
-  assert.match($('#streetview-host iframe').src, /xyz=0\.00\//);
-});
-
-const boutonFermer = $$('#streetview-host .sv-toolbar .btn').find((node) => /Fermer la vue/.test(node.textContent));
-click(boutonFermer);
-await waitFor(() => $$('#streetview-host iframe').length === 0, 'fermeture du viewer');
-check('Fermer la vue retire l\'iframe et revient à l\'affiche de consentement', () => {
-  assert.equal($$('#streetview-host iframe').length, 0);
-  assert.ok($('#streetview-host .sv-launch'));
-});
-
-
-/* ------------------------- Bascule de fond ------------------------- */
-
-click($('[data-baselayer="ortho"]'));
-await waitFor(() => $$('#map img.leaflet-tile').some((tile) => tile.src.includes('ORTHOIMAGERY')), 'bascule en vue aérienne');
-check('La bascule carte → photo aérienne est explicite', () => {
-  assert.match($('#map-credits').textContent, /Photographie aérienne/);
-  assert.ok($('[data-baselayer="ortho"]').classList.contains('is-active'));
-});
-click($('[data-baselayer="osm"]'));
-
-/* ------------------- 4e vue : Street View sur la carte ------------- */
-
-click($('[data-baselayer="street"]'));
-await waitFor(() => $('#map-street').dataset.state === 'ready', 'vue de rue de l’établissement');
-check('Le 4e bouton Street View affiche l’image de rue de la société', () => {
-  assert.ok($('[data-baselayer="street"]').classList.contains('is-active'));
-  assert.equal($('#map-street').hidden, false);
-  const img = $('#map-street-img');
+await check('Vue de la rue : photo réelle chargée + lien Google Street View', () => {
+  const img = document.getElementById('street-img');
+  assert.match(img.src, /^https:\/\/panoramax\.example\/rognac-sd\.jpg/);
+  img.dispatchEvent(new window.Event('load'));
   assert.equal(img.hidden, false);
-  assert.match(img.getAttribute('src'), /example\.invalid|mapillary/);
-  assert.match($('#map-street-label').textContent, /\S/);
-  assert.match($('#map-street-credit').textContent, /Panoramax|Mapillary|CC/);
-  assert.match($('#map-credits').textContent, /Vue de rue/);
-  if (img.classList.contains('is-pano')) {
-    // Panorama : le cadrage est calculé pour faire face au bâtiment.
-    assert.equal(img.style.getPropertyValue('--pano-width'), '280%');
-    assert.match(img.style.getPropertyValue('--pano-left'), /^-\d/);
-  }
+  assert.equal(document.getElementById('street-empty').hidden, true);
+  assert.match(document.getElementById('btn-street-view').href, /google\.com\/maps/);
 });
 
-const rueAvant = $('#map-street-img').getAttribute('src');
-if (!$('#map-street-next').hidden) {
-  click($('#map-street-next'));
-  check('Les flèches parcourent les photographies de la rue', () => {
-    assert.notEqual($('#map-street-img').getAttribute('src'), rueAvant);
-    assert.match($('#map-street-counter').textContent, /Image \d+ sur \d+/);
-  });
-}
-
-click($('[data-baselayer="planign"]'));
-check('Le retour à un fond de plan masque la vue de rue', () => {
-  assert.equal($('#map-street').hidden, true);
-  assert.doesNotMatch($('#map-credits').textContent, /Vue de rue/);
-  assert.ok($('[data-baselayer="planign"]').classList.contains('is-active'));
-  assert.equal($('[data-baselayer="street"]').classList.contains('is-active'), false);
-});
-click($('[data-baselayer="osm"]'));
-
-/* --------------------------- Plein écran --------------------------- */
-
-click($('#btn-fullscreen'));
-check('Le plein écran de la carte fonctionne', () => {
-  assert.ok($('#map-card').classList.contains('is-fullscreen'));
-});
-click($('#btn-fullscreen'));
-check('La sortie du plein écran fonctionne', () => {
-  assert.equal($('#map-card').classList.contains('is-fullscreen'), false);
+await check('5 indicateurs de site remplis : surface, solaire, mer, accessibilité et environnement', () => {
+  assert.match(document.getElementById('kpi-surface-val').textContent, /m²$/);
+  assert.equal(document.getElementById('kpi-solar-val').textContent, 'Très bon');
+  assert.match(document.getElementById('kpi-sea-val').textContent, /km$/);
+  assert.match(document.getElementById('kpi-access-1').textContent, /^Aéroport à \d+ km$/);
+  assert.match(document.getElementById('kpi-access-2').textContent, /^A7 à \d+ km$/);
+  assert.equal(document.getElementById('kpi-env-1').textContent, 'Zone d\'activité');
+  assert.equal(document.getElementById('kpi-env-2').textContent, 'PEB moyen');
 });
 
-/* ------------------------------ Export ----------------------------- */
+await check('Sections CRM : accordéons RAC/Prelead/Génération, modales, sauvegarde locale et masquage recherche', async () => {
+  const racBtn = document.querySelector('[data-accordion="rac"] .crm-accordion-head');
+  const racBody = document.getElementById('panel-rac');
+  assert.equal(racBody.hidden, true);
+  racBtn.click();
+  assert.equal(racBody.hidden, false);
+  racBtn.click();
+  assert.equal(racBody.hidden, true);
 
-click($('#btn-export-results'));
-check('L\'export CSV des résultats produit un fichier nommé', () => {
-  assert.ok(downloads.some((name) => /company-locator_resultats_.*\.csv$/.test(name)), downloads.join(', '));
-});
-click($('#btn-export-geojson'));
-check('L\'export GeoJSON produit un fichier nommé', () => {
-  assert.ok(downloads.some((name) => /\.geojson$/.test(name)));
-});
-click($('#detail-card [data-tab="toiture"]'));
+  document.getElementById('btn-mise-en-relation').click();
+  assert.equal(document.getElementById('crm-modal').hidden, false);
+  document.querySelector('[data-close-modal]').click();
+  assert.equal(document.getElementById('crm-modal').hidden, true);
 
-/* ----------------------- Fiche enregistrée ------------------------- */
+  const { crmSheets } = await import('../js/storage.js');
+  const web = document.getElementById('co-website');
+  web.value = 'https://abiotech-mts.fr';
+  web.dispatchEvent(new window.Event('change'));
+  assert.equal(crmSheets.get('88329230200014').website, 'https://abiotech-mts.fr');
 
-click($('#detail-card .detail-head .icon-btn'));
-await waitFor(() => $('#detail-card .detail-head .icon-btn').classList.contains('is-active'), 'enregistrement de la fiche');
-check('La fiche peut être enregistrée localement', () => {
-  assert.ok(window.localStorage.getItem('clf:favorites').includes('73282932000017'));
-});
-check('Le nouvel onglet reste actif après le réaffichage de la fiche', () => {
-  assert.equal($('#detail-card [data-tab="toiture"]').getAttribute('aria-selected'), 'true');
-  assert.ok($('#detail-card [data-panel="toiture"] #site-host'));
-});
-
-/* ---------------------------- Paramètres --------------------------- */
-
-click($('#btn-settings'));
-await waitFor(() => !$('#modal-settings').hidden, 'ouverture des paramètres');
-check('Les paramètres affichent l\'état du stockage et le mode Mapillary', () => {
-  const text = $('#settings-body').textContent;
-  assert.match(text, /Stockage local/);
-  assert.match(text, /proxy local sécurisé/);
-  assert.match(text, /Panoramax/);
-});
-const historySwitch = $('#settings-body input[type="checkbox"]');
-historySwitch.checked = true;
-historySwitch.dispatchEvent(new window.Event('change', { bubbles: true }));
-check('L\'historique est opt-in et s\'active explicitement', () => {
-  assert.equal(JSON.parse(window.localStorage.getItem('clf:settings')).historyEnabled, true);
-});
-click($('#modal-settings .modal-foot .btn'));
-check('La modale des paramètres se ferme', () => assert.equal($('#modal-settings').hidden, true));
-
-// L'historique étant opt-in, seules les actions POSTÉRIEURES à son activation
-// sont mémorisées : on rejoue donc une recherche et une consultation.
-$('#champ-nom').value = 'SOCIETE DE TEST';
-$('#champ-cp').value = '75015';
-$('#search-form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
-await waitFor(() => $$('#results-list .result-item').length > 0, 'seconde recherche');
-click($('#results-list .result-item'));
-await waitFor(() => !$('#detail-card').hidden, 'seconde consultation de fiche');
-
-/* ---------------------------- Historique --------------------------- */
-
-click($('#btn-history'));
-await waitFor(() => !$('#modal-history').hidden, 'ouverture de l\'historique');
-check('L\'historique liste les recherches et les fiches consultées', () => {
-  assert.match($('#history-body').textContent, /Recherches \(/);
-  assert.ok($$('#history-body .chip').length === 3);
-});
-click($$('#history-body .chip')[1]);
-check('L\'onglet « fiches consultées » contient la fiche ouverte', () => {
-  assert.match($('#history-body').textContent, /732 829 320 00017/);
-});
-click($$('#history-body .chip')[2]);
-check('L\'onglet « fiches enregistrées » contient la favorite', () => {
-  assert.match($('#history-body').textContent, /enregistrée le/);
-});
-click($('#modal-history .modal-foot .btn-primary'));
-
-/* --------------------- Recherche sans résultat --------------------- */
-
-$('#btn-reset').dispatchEvent(new window.Event('click', { bubbles: true }));
-$('#search-form').dispatchEvent(new window.Event('reset', { bubbles: true, cancelable: true }));
-await new Promise((resolve) => setTimeout(resolve, 60));
-$('#champ-nom').value = 'ZZZZ Introuvable';
-$('#champ-cp').value = '75015';
-$('#search-form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
-await waitFor(() => $('#results-list .empty-state'), 'état « aucun résultat »');
-check('Une recherche sans résultat affiche un message explicite', () => {
-  assert.match($('#results-list').textContent, /Aucune entreprise trouvée|Recherche impossible/);
+  document.getElementById('btn-hide-search').click();
+  assert.equal(document.getElementById('search-toolbar').hidden, true);
+  assert.equal(document.getElementById('btn-show-search').hidden, false);
+  document.getElementById('btn-show-search').click();
+  assert.equal(document.getElementById('search-toolbar').hidden, false);
 });
 
-/* ---------------------- Validation du formulaire -------------------- */
-
-$('#champ-nom').value = '';
-$('#champ-cp').value = '999';
-$('#search-form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
-await waitFor(() => !$('#form-error').hidden, 'message d\'erreur de validation');
-check('Un code postal invalide est refusé avant tout appel réseau', () => {
-  assert.match($('#form-error').textContent, /code postal français valide/);
-  assert.equal($('#champ-cp').getAttribute('aria-invalid'), 'true');
+await check('Recherche d’une autre société via la barre du haut', async () => {
+  const q = document.getElementById('champ-recherche');
+  q.value = 'Exemple';
+  document.getElementById('search-form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  await wait(450);
+  assert.equal(document.getElementById('co-siret').textContent, '73282932000017');
+  assert.deepEqual(errors, []);
 });
 
-/* Les messages de configuration et d'absence demandés ne sont plus visibles. */
-const ui = await import('../js/ui.js');
-ui.detailRefs.streetHost = document.createElement('div');
-ui.detailRefs.streetActions = document.createElement('div');
-ui.renderStreetPhotos({ loading: false, photos: [], radiusM: 200, sources: [
-  { name: 'Mapillary', status: 'unavailable', count: 0, message: 'Aucun fichier de configuration trouvé' },
-  { name: 'Panoramax', status: 'empty', count: 0, message: 'Aucune photographie géolocalisée dans un rayon de 200 m.' },
-  { name: 'Autre service', status: 'error', count: 0, message: 'Erreur réseau' },
-] }, {});
-check('Les messages demandés sont supprimés sans masquer une vraie erreur réseau', () => {
-  const host = ui.detailRefs.streetHost;
-  assert.doesNotMatch(host.textContent, /Aucun fichier de configuration trouvé|Aucune photographie géolocalisée/);
-  assert.doesNotMatch(host.innerHTML, /Aucun fichier de configuration trouvé|Aucune photographie géolocalisée/);
-  assert.match(host.textContent, /Erreur réseau/);
-  assert.match(host.textContent, /Aucune photographie de rue disponible/);
-});
-
-/* ------------------------------ Bilan ------------------------------ */
-
-await new Promise((resolve) => setTimeout(resolve, 250));
-
-const realErrors = errors.filter((message) => !/Could not load img|Not implemented|Error: Not implemented/i.test(message));
-check('Aucune erreur JavaScript pendant le parcours complet', () => {
-  assert.deepEqual(realErrors, []);
-});
-check('Aucun appel à un service payant ou non déclaré', () => {
-  const hosts = new Set(networkCalls.filter((url) => url.startsWith('http')).map((url) => new URL(url).host));
-  const allowed = new Set(['recherche-entreprises.api.gouv.fr', 'data.geopf.fr', 'api.panoramax.xyz', 'earth-search.aws.element84.com']);
-  assert.deepEqual([...hosts].filter((host) => !allowed.has(host)), []);
-});
-check('Le serveur local est détecté et utilisé comme relais de même origine', () => {
-  assert.ok(networkCalls.includes('/api/health'), 'détection du serveur local');
-  // L'API entreprises n'envoie pas d'en-tête CORS → relais local obligatoire.
-  assert.ok(networkCalls.some((url) => url.startsWith('/api/proxy/entreprises/search')), 'recherche relayée en même origine');
-  // Géoplateforme et Panoramax sont ouverts en CORS → appel direct autorisé.
-  assert.ok(networkCalls.some((url) => url.startsWith('https://data.geopf.fr/geocodage/search')), 'géocodage en direct');
-  assert.ok(networkCalls.some((url) => url.startsWith('https://api.panoramax.xyz/api/search')), 'Panoramax en direct');
-});
-check('Aucun jeton secret n\'apparaît dans les requêtes navigateur', () => {
-  assert.equal(networkCalls.some((url) => /access_token=/.test(url)), false);
-});
-
-const failed = results.filter((result) => !result.ok);
-console.log(`\n${results.length - failed.length}/${results.length} vérifications réussies.`);
-if (failed.length) {
-  console.error('\nÉchecs :');
-  failed.forEach((result) => console.error(` - ${result.label}: ${result.error.message}`));
-  process.exit(1);
-}
-console.log('Parcours complet validé sans erreur.\n');
-process.exit(0);
+const failed = results.filter((r) => !r.ok);
+console.log(`\n${results.length - failed.length}/${results.length} vérifications DOM réussies.\n`);
+process.exit(failed.length ? 1 : 0);

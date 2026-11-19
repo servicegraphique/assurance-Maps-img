@@ -219,6 +219,37 @@ export function normalizeEtablissement(raw = {}, entreprise = null) {
   };
 }
 
+function normalizeDirigeants(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .map((item) => {
+      if (!item || typeof item !== 'object') return null;
+      const type = clean(item.type_dirigeant) || 'personne physique';
+      const nom = clean(item.nom || item.denomination);
+      const prenoms = clean(item.prenoms);
+      const qualite = clean(item.qualite);
+      if (!nom && !prenoms) return null;
+      return { type, nom, prenoms, qualite };
+    })
+    .filter(Boolean)
+    .sort((a, b) => Number(b.type === 'personne physique') - Number(a.type === 'personne physique'));
+}
+
+function normalizeFinances(rawFinances) {
+  if (!rawFinances || typeof rawFinances !== 'object' || Array.isArray(rawFinances)) return [];
+  return Object.entries(rawFinances)
+    .filter(([year, vals]) => /^\d{4}$/.test(year) && vals && typeof vals === 'object')
+    .map(([year, vals]) => ({
+      year: Number(year),
+      ca: vals.ca != null && Number.isFinite(Number(vals.ca)) ? Number(vals.ca) : null,
+      resultatNet: vals.resultat_net != null && Number.isFinite(Number(vals.resultat_net))
+        ? Number(vals.resultat_net)
+        : null,
+    }))
+    .filter((entry) => entry.ca !== null || entry.resultatNet !== null)
+    .sort((a, b) => b.year - a.year);
+}
+
 export function normalizeEntreprise(raw = {}) {
   const entreprise = {
     siren: clean(raw.siren),
@@ -241,6 +272,11 @@ export function normalizeEntreprise(raw = {}) {
     estAssociation: Boolean(raw.complements?.est_association),
     estEntrepreneurIndividuel: Boolean(raw.complements?.est_entrepreneur_individuel),
     estEss: Boolean(raw.complements?.est_ess),
+    estRge: Boolean(raw.complements?.est_rge),
+    estQualiopi: Boolean(raw.complements?.est_qualiopi),
+    estServicePublic: Boolean(raw.complements?.est_service_public || raw.complements?.collectivite_territoriale),
+    dirigeants: normalizeDirigeants(raw.dirigeants),
+    finances: normalizeFinances(raw.finances),
     source: SOURCE_ENTREPRISES,
     sourceUrl: clean(raw.siren) ? `https://annuaire-entreprises.data.gouv.fr/entreprise/${clean(raw.siren)}` : '',
   };

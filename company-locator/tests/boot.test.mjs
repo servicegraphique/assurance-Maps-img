@@ -82,10 +82,8 @@ await check('Le bandeau indique la bonne adresse à ouvrir', async () => {
   assert.match(text(), /nodejs\.org/);
 });
 
-await check('Les modales et la lightbox restent masquées malgré l\'absence de JS applicatif', async () => {
-  for (const id of ['modal-settings', 'modal-history', 'lightbox']) {
-    assert.equal(fileCase.document.getElementById(id).hasAttribute('hidden'), true, id);
-  }
+await check('La modale reste masquée malgré l\'absence de JS applicatif', async () => {
+  assert.equal(fileCase.document.getElementById('crm-modal').hasAttribute('hidden'), true, 'crm-modal');
 });
 
 await check('Le chemin affiché est déduit de l\'URL, jamais codé en dur', async () => {

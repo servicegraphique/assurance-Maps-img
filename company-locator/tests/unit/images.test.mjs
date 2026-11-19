@@ -9,11 +9,8 @@ import { readFileSync } from 'node:fs';
 
 import {
   fetchPanoramax, fetchMapillary, fetchStreetPhotos, detectMapillaryAccess,
-  getComplementaryPhotos, addComplementaryPhoto, removeComplementaryPhoto,
   streetPhotoView, bearingDeg, panoFrame, pickStreetPhotoIndex, PANO_ZOOM,
 } from '../../js/images.js';
-import { purgeUserData } from '../../js/storage.js';
-import { ERR } from '../../js/utils.js';
 
 const pnx = JSON.parse(readFileSync(new URL('../fixtures/panoramax-search.json', import.meta.url), 'utf8'));
 const mly = JSON.parse(readFileSync(new URL('../fixtures/mapillary-images.json', import.meta.url), 'utf8'));
@@ -155,20 +152,6 @@ test('fetchStreetPhotos : une source en panne n\'empêche pas l\'autre', async (
   } finally { restore(); }
 });
 
-test('Photos complémentaires : URL et source obligatoires, stockage local', () => {
-  purgeUserData();
-  const siret = '73282932000017';
-  assert.throws(() => addComplementaryPhoto(siret, { url: 'javascript:alert(1)', source: 'X' }), (e) => e.code === ERR.INVALID_INPUT);
-  assert.throws(() => addComplementaryPhoto(siret, { url: 'https://exemple.fr/a.jpg', source: '  ' }), (e) => e.code === ERR.INVALID_INPUT);
-  addComplementaryPhoto(siret, { url: 'https://exemple.fr/a.jpg', source: 'Site officiel', licence: 'CC BY 4.0' });
-  const photos = getComplementaryPhotos(siret);
-  assert.equal(photos.length, 1);
-  assert.equal(photos[0].author, 'Site officiel');
-  assert.equal(photos[0].providerName, 'Photo ajoutée manuellement');
-  removeComplementaryPhoto(siret, photos[0].id);
-  assert.equal(getComplementaryPhotos(siret).length, 0);
-});
-
 test('Vue de rue de la carte : image, crédit, compteur et lien source', () => {
   const photo = {
     id: 'panoramax:abc',
@@ -188,24 +171,18 @@ test('Vue de rue de la carte : image, crédit, compteur et lien source', () => {
   assert.equal(view.url, 'https://exemple.invalid/sd.jpg');
   assert.equal(view.thumbUrl, 'https://exemple.invalid/thumb.jpg');
   assert.equal(view.isPano, true);
-  assert.match(view.badge, /360°/);
   assert.match(view.credit, /Panoramax/);
-  assert.match(view.credit, /CC-BY-SA-4\.0/);
-  assert.match(view.credit, /prise de vue 14\/05\/2024/);
-  assert.match(view.credit, /à 12 m/);
-  assert.equal(view.counter, 'Image 2 sur 3');
+  assert.match(view.credit, /14\/05\/2024/);
+  assert.match(view.credit, /12 m/);
+  assert.equal(view.counter, '2 / 3');
   assert.equal(view.pageUrl, photo.pageUrl);
 
-  // Une photographie plate n'est jamais présentée comme immersive.
   const flat = streetPhotoView({ ...photo, isPano: false });
-  assert.match(flat.badge, /Photographie de rue/);
-  assert.doesNotMatch(flat.badge, /360°/);
+  assert.equal(flat.isPano, false);
+  assert.equal(flat.pano, null);
 
-  // Index hors bornes ramené dans la série.
-  assert.equal(streetPhotoView(photo, { index: 9, total: 2 }).counter, 'Image 2 sur 2');
-  assert.equal(streetPhotoView(photo, { index: -3, total: 2 }).counter, 'Image 1 sur 2');
-
-  // Aucune URL affichable : rien n'est inventé.
+  assert.equal(streetPhotoView(photo, { index: 9, total: 2 }).counter, '2 / 2');
+  assert.equal(streetPhotoView(photo, { index: -3, total: 2 }).counter, '1 / 2');
   assert.equal(streetPhotoView({ ...photo, fullUrl: 'javascript:alert(1)', thumbUrl: '' }), null);
   assert.equal(streetPhotoView(null), null);
 });
