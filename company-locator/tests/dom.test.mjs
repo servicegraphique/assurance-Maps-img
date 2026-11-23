@@ -173,6 +173,18 @@ async function fakeFetch(input) {
   if (url.startsWith('/api/site') || url.includes('BDTOPO_V3')) {
     return jsonRes(ROGNAC_BDTOPO);
   }
+  if (url.includes('geo.api.gouv.fr/communes')) {
+    if (url.includes('code=13081') || url.includes('codePostal=13340')) {
+      return jsonRes([{
+        code: '13081',
+        nom: 'Rognac',
+        population: 4587,
+        departement: { code: '13', nom: 'Bouches-du-Rhône' },
+        region: { code: '93', nom: 'Provence-Alpes-Côte d\'Azur' },
+      }]);
+    }
+    return jsonRes([]);
+  }
   if (url.includes('panoramax')) {
     if (url.includes('43.45')) {
       return jsonRes({
@@ -273,14 +285,15 @@ await check('Vue de la rue : photo réelle chargée + lien Google Street View', 
   assert.match(document.getElementById('btn-street-view').href, /google\.com\/maps/);
 });
 
-await check('5 indicateurs de site remplis : surface, solaire, mer, accessibilité et environnement', () => {
+await check('5 indicateurs de site remplis : surface, solaire, population, département et région', () => {
   assert.match(document.getElementById('kpi-surface-val').textContent, /m²$/);
   assert.equal(document.getElementById('kpi-solar-val').textContent, 'Très bon');
-  assert.match(document.getElementById('kpi-sea-val').textContent, /km$/);
-  assert.match(document.getElementById('kpi-access-1').textContent, /^Aéroport à \d+ km$/);
-  assert.match(document.getElementById('kpi-access-2').textContent, /^A7 à \d+ km$/);
-  assert.equal(document.getElementById('kpi-env-1').textContent, 'Zone d\'activité');
-  assert.equal(document.getElementById('kpi-env-2').textContent, 'PEB moyen');
+  assert.equal(document.getElementById('kpi-pop-val').textContent, '4 587');
+  assert.equal(document.getElementById('kpi-pop-sub').textContent, 'Nbre d\'habitant');
+  assert.equal(document.getElementById('kpi-dept-val').textContent, '13');
+  assert.equal(document.getElementById('kpi-dept-sub').textContent, 'Bouches-du-Rhône');
+  assert.equal(document.getElementById('kpi-region-val').textContent, 'Provence-Alpes-Côte d\'Azur');
+  assert.equal(document.getElementById('kpi-region-sub').textContent, 'Code 93');
 });
 
 await check('Sections CRM : accordéons RAC/Prelead/Génération, modales, sauvegarde locale et masquage recherche', async () => {

@@ -60,6 +60,26 @@ function redPinIcon(L) {
   });
 }
 
+/**
+ * Premier aperçu de la carte « Localisation » : carte de France entière
+ * (métropole + Corse) centrée sur l'Hexagone, comme une carte nationale —
+ * l'épingle du site reste visible. Hors métropole (DROM), vue régionale
+ * centrée sur le site.
+ */
+const METRO_FRANCE_BOX = [41.2, 51.5, -5.6, 10.0]; // latMin, latMax, lonMin, lonMax
+
+export function firstLocationView(lat, lon) {
+  const la = Number(lat);
+  const lo = Number(lon);
+  if (!Number.isFinite(la) || !Number.isFinite(lo)) {
+    return { center: config.map.franceCenter, zoom: config.map.franceZoom };
+  }
+  const inMetro = la >= METRO_FRANCE_BOX[0] && la <= METRO_FRANCE_BOX[1]
+    && lo >= METRO_FRANCE_BOX[2] && lo <= METRO_FRANCE_BOX[3];
+  if (inMetro) return { center: config.map.franceCenter, zoom: config.map.franceZoom };
+  return { center: [la, lo], zoom: config.map.overseasFirstZoom };
+}
+
 let leafletReady = null;
 export function ensureLeaflet() {
   if (leafletReady) return leafletReady;
@@ -80,7 +100,7 @@ export function ensureLeaflet() {
   return leafletReady;
 }
 
-/** Carte « Localisation » (plan routier + épingle rouge). */
+/** Carte « Localisation » : premier aperçu sur toute la France, puis recentrage libre. */
 export async function createPlanMap(container) {
   const L = await ensureLeaflet();
   const map = L.map(container, {
@@ -114,7 +134,12 @@ export async function createPlanMap(container) {
 
   return {
     map,
-    setPoint(lat, lon, { zoom = config.map.planZoom, label = '' } = {}) {
+    /**
+     * Place l'épingle. Sans `zoom` explicite, premier aperçu = carte de France
+     * entière (métropole) avec le site épinglé ; avec `zoom`, recentre au plus
+     * près sur le point.
+     */
+    setPoint(lat, lon, { zoom = null, label = '' } = {}) {
       if (!isPlausibleFranceCoords(lat, lon)) return false;
       currentPoint = { lat, lon, label };
       if (marker) {
@@ -122,7 +147,8 @@ export async function createPlanMap(container) {
       } else {
         marker = L.marker([lat, lon], { icon: redPinIcon(L), title: label || 'Localisation' }).addTo(map);
       }
-      map.setView([lat, lon], clamp(zoom, 5, 19), { animate: false });
+      const view = zoom == null ? firstLocationView(lat, lon) : { center: [lat, lon], zoom };
+      map.setView(view.center, clamp(view.zoom, 5, 19), { animate: false });
       return true;
     },
     clear() {

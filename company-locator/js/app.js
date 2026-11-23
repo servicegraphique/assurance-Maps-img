@@ -32,9 +32,9 @@ import { createEmbedBridge } from './embed.js';
 import {
   formatCreationMonthFr, formatCoordCardinal, formatLocationLine, formatIntFr, titleCaseFr,
   googleEarthUrl, googleStreetViewUrl, mapDirigeantToBuyer, inferEntityType,
-  computeBuildingSurface, computeSolarPotential, computeSeaDistance,
-  computeAccessibility, computeEnvironment, computeFinancialScore, computeElectricityEstimate,
+  computeBuildingSurface, computeSolarPotential, computeFinancialScore, computeElectricityEstimate,
 } from './enrichment.js';
+import { fetchCommuneStats, divisionFromLocal, formatPopulation } from './commune-stats.js';
 import {
   weatherSvg, renderElectricityChart, renderCompanyLogo, formatDateTimeCrm,
   renderCommentsBox, renderResultsDropdown, buildFinancialModalHtml, buildElectricityModalHtml,
@@ -51,6 +51,7 @@ const state = {
   buildingGeojson: null,
   building: null,
   solar: null,
+  communeStats: null,
   finance: null,
   electricity: null,
   streetPhotos: [],
@@ -341,6 +342,9 @@ async function selectRow(row) {
   // Calcul initial immédiat de la surface et de l'électricité avant retour BD TOPO
   recomputeSiteAndEnergy({ lat: etablissement.latitude, lon: etablissement.longitude });
 
+  // Population / département / région : tables locales immédiates, API Géo ensuite
+  loadCommuneStats(etablissement, signal);
+
   // 1. Géocodage précis (BAN + SIRENE)
   let position = null;
   try {
@@ -375,11 +379,13 @@ async function selectRow(row) {
   setExternalLink($('btn-street-view'), googleStreetViewUrl(lat, lon));
 
   const displayName = entreprise.raisonSociale || etablissement.nomAffiche;
-  state.planMap?.setPoint(lat, lon, { zoom: config.map.planZoom, label: displayName });
+  // Premier aperçu : carte de France entière avec l'épingle (comme une carte nationale),
+  // puis zoom site possible (molette / double-clic) ou via l'agrandissement ⤢.
+  state.planMap?.setPoint(lat, lon, { label: displayName });
   $('sat-empty').hidden = true;
   state.satMap?.setPoint(lat, lon, { zoom: config.map.aerialZoom });
 
-  // Mise à jour immédiate des KPI géographiques (mer, accessibilité, solaire, environnement)
+  // Mise à jour immédiate des KPI de site (surface, solaire, électricité)
   recomputeSiteAndEnergy({ lat, lon });
 
   // 2. Enrichissements parallèles : Météo + Altitude + Emprise BD TOPO + Vue de la rue
@@ -574,18 +580,6 @@ function recomputeSiteAndEnergy({ lat, lon } = {}) {
   $('kpi-solar-val').textContent = solar.rating;
   $('kpi-solar-sub').textContent = solar.subtitle;
 
-  const sea = computeSeaDistance(lat, lon);
-  $('kpi-sea-val').textContent = sea.display;
-  $('kpi-sea-sub').textContent = sea.subtitle;
-
-  const access = computeAccessibility(lat, lon);
-  $('kpi-access-1').textContent = access.line1;
-  $('kpi-access-2').textContent = access.line2;
-
-  const env = computeEnvironment({ buildingUsage: building.usage, naf, airportKm: access.airportKm });
-  $('kpi-env-1').textContent = env.line1;
-  $('kpi-env-2').textContent = env.line2;
-
   const elec = computeElectricityEstimate({
     naf,
     surfaceM2: building.surfaceM2,
@@ -598,6 +592,35 @@ function recomputeSiteAndEnergy({ lat, lon } = {}) {
   $('elec-year').textContent = formatIntFr(elec.annualKwh);
   $('elec-source').textContent = elec.sourceLabel;
   renderElectricityChart($('elec-chart'), elec.monthlySeries);
+}
+
+/* ==================================================================== */
+/* 3bis. Population, département et région (KPI 3-4-5)                   */
+/* ==================================================================== */
+
+function renderCommuneStats(stats) {
+  $('kpi-pop-val').textContent = formatPopulation(stats?.population);
+  $('kpi-dept-val').textContent = stats?.deptCode || '—';
+  $('kpi-dept-sub').textContent = stats?.deptName || '—';
+  $('kpi-region-val').textContent = stats?.regionName || '—';
+  $('kpi-region-sub').textContent = stats?.regionCode ? `Code ${stats.regionCode}` : '—';
+}
+
+/**
+ * Indicateurs Population / Département / Région : rendu immédiat depuis les
+ * tables INSEE locales, puis complété par l'API Géo France (population
+ * municipale) — jamais d'erreur remontée, repli local conservé hors-ligne.
+ */
+async function loadCommuneStats(etablissement, signal) {
+  try {
+    renderCommuneStats({ population: null, ...divisionFromLocal(etablissement) });
+    const stats = await fetchCommuneStats(etablissement, { signal });
+    if (signal?.aborted) return;
+    state.communeStats = stats;
+    renderCommuneStats(stats);
+  } catch {
+    /* repli local déjà affiché */
+  }
 }
 
 /* ==================================================================== */

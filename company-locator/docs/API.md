@@ -10,6 +10,7 @@
 | Carte `Localisation` | Plan IGN V2 (WMTS Géoplateforme) + repli OpenStreetMap | Tuiles WMTS / XYZ |
 | Carte `Vue satellite` | IGN BD ORTHO HR (20 cm) + repli ORTHOIMAGERY.ORTHOPHOTOS | Tuiles WMTS |
 | `Surface bâtiment` & usage | IGN BD TOPO V3 (`BDTOPO_V3:batiment`) + calcul géodésique Turf.js | WFS 2.0 GeoJSON |
+| `Population`, `Département`, `Région` | API Géo France (`geo.api.gouv.fr/communes`) + tables INSEE locales de repli | REST JSON |
 | `Météo actuelle` | Open-Meteo (`/v1/forecast`) | REST JSON |
 | `Vue de la rue` | Panoramax (IGN / OSM France) | STAC JSON |
 

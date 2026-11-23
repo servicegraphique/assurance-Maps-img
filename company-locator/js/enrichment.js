@@ -4,9 +4,9 @@
  * Module pur (sans DOM, sans réseau, intégralement testé) :
  *  - Surface bâtiment (BD TOPO® IGN via Turf, avec repli estimé transparent)
  *  - Potentiel solaire (gisement régional français + rayonnement + toiture)
- *  - Distance mer (littoral français métropolitain & DROM)
- *  - Accessibilité (aéroport commercial + axe autoroutier les plus proches)
- *  - Environnement (vocation de la zone + exposition PEB aéroportuaire)
+ *  - Distance mer / Accessibilité / Environnement : calculs géographiques de
+ *    référence (exportés et testés, remplacés dans le bandeau KPI par
+ *    Population / Département / Région — voir js/commune-stats.js)
  *  - Note financière estimée (données officielles INPI/SIRENE : état, bilans, ancienneté, effectif)
  *  - Consommation d'électricité estimée (ratios sectoriels NAF × surface × profil saisonnier J–D)
  *  - Formatage CRM (dirigeant → acheteur, coordonnées cardinales, date de création, liens externes)
@@ -167,7 +167,7 @@ export function inferEntityType(entreprise) {
 }
 
 /* ==================================================================== */
-/* 2. Les 5 cartes d'indicateurs (KPI)                                   */
+/* 2. Indicateurs de site (surface, solaire, mer, access, environnement)  */
 /* ==================================================================== */
 
 function nafDivision(naf) {
