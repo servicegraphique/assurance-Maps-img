@@ -581,7 +581,7 @@ export function computeElectricityEstimate({ naf = '', surfaceM2 = 1200, tranche
     intensityKwhM2: kwhM2,
     sectorLabel,
     surfaceUsedM2: Math.round(area),
-    sourceLabel: 'Estimation Enedis Open Data 2024',
+    sourceLabel: 'Estimation sectorielle (NAF × surface)',
     monthlySeries,
   };
 }

@@ -267,7 +267,7 @@ export function buildElectricityModalHtml(elec, solar) {
       <tbody>${rows}</tbody>
     </table>
     ${solarLine}
-    <p class="modal-note">Estimation statistique fondée sur le code NAF, l'emprise bâtie et la zone climatique (référentiels Enedis Open Data / secteur tertiaire &amp; activité). À confirmer avec les factures ou le PDL Enedis du client.</p>
+    <p class="modal-note">Estimation statistique locale : ratio de consommation du secteur (division NAF, kWh/m²/an) × emprise bâtie (IGN BD TOPO, sinon estimée) × profil saisonnier nord/sud — aucune donnée Enedis n'est collectée. À confirmer avec les factures ou le PDL Enedis du client.</p>
   `;
 }
 
