@@ -398,55 +398,56 @@
             </span>
           </button>
 
-          <!-- KPI 3 : Distance mer -->
-          <div id="kpi-sea" class="kpi-card">
-            <span class="kpi-title">Distance mer</span>
+          <!-- KPI 3 : Population (nombre d'habitants) -->
+          <div id="kpi-pop" class="kpi-card">
+            <span class="kpi-title">Population</span>
             <span class="kpi-center">
               <svg class="kpi-icon" viewBox="0 0 48 42" width="42" height="36" aria-hidden="true">
-                <path d="M19 18c1.5-5.5 6.8-8.5 11.8-6.5 4.2 1.7 5.8 6.4 3.4 10.2-1.8 2.8-5.5 3.6-8.2 2 2.4-.5 3.6-2.9 2.6-5-1-2.1-3.8-2.6-5.5-.8"
-                      fill="none" stroke="#2f7de1" stroke-width="2.6" stroke-linecap="round"/>
-                <path d="M6 27c3.2 0 4.5-2.8 7.5-2.8s4.3 2.8 7.5 2.8 4.5-2.8 7.5-2.8 4.3 2.8 7.5 2.8 4.2-2.2 6-2.7"
-                      fill="none" stroke="#2f7de1" stroke-width="2.6" stroke-linecap="round"/>
-                <path d="M6 34c3.2 0 4.5-2.8 7.5-2.8s4.3 2.8 7.5 2.8 4.5-2.8 7.5-2.8 4.3 2.8 7.5 2.8 4.2-2.2 6-2.7"
-                      fill="none" stroke="#5b9cf2" stroke-width="2.5" stroke-linecap="round"/>
+                <circle cx="9" cy="15" r="4.8" fill="#7fb0f4"/>
+                <path d="M9 22c-4.4 0-8 2.9-9 6.9-.4 1.4-.5 2.7-.4 4.1h18.8c.1-1.4 0-2.7-.4-4.1-1-4-4.6-6.9-9-6.9z" fill="#7fb0f4"/>
+                <circle cx="39" cy="15" r="4.8" fill="#7fb0f4"/>
+                <path d="M39 22c4.4 0 8 2.9 9 6.9.4 1.4.5 2.7.4 4.1H29.6c-.1-1.4 0-2.7.4-4.1 1-4 4.6-6.9 9-6.9z" fill="#7fb0f4"/>
+                <circle cx="24" cy="10.5" r="6.3" fill="#2f7de1"/>
+                <path d="M24 19c-5.7 0-10.4 3.8-11.8 9-.5 1.8-.7 3.4-.6 5.4h24.8c.1-2-.1-3.6-.6-5.4-1.4-5.2-6.1-9-11.8-9z" fill="#2f7de1"/>
               </svg>
             </span>
             <span class="kpi-foot kpi-foot--stack">
-              <strong id="kpi-sea-val" class="kpi-line-strong">—</strong>
-              <span id="kpi-sea-sub" class="kpi-sub">—</span>
+              <strong id="kpi-pop-val" class="kpi-line-strong">—</strong>
+              <span id="kpi-pop-sub" class="kpi-sub">Nbre d'habitant</span>
             </span>
           </div>
 
-          <!-- KPI 4 : Accessibilité -->
-          <div id="kpi-access" class="kpi-card">
-            <span class="kpi-title">Accessibilité</span>
+          <!-- KPI 4 : Département -->
+          <div id="kpi-dept" class="kpi-card">
+            <span class="kpi-title">Département</span>
             <span class="kpi-center">
-              <svg class="kpi-icon" viewBox="0 0 48 42" width="42" height="38" aria-hidden="true">
-                <path d="M15 5h18l10 33H5L15 5z" fill="#63a967"/>
-                <line x1="24" y1="7" x2="24" y2="12" stroke="#ffffff" stroke-width="2.6" stroke-linecap="round"/>
-                <line x1="24" y1="17.5" x2="24" y2="24" stroke="#ffffff" stroke-width="2.8" stroke-linecap="round"/>
-                <line x1="24" y1="29.5" x2="24" y2="36.5" stroke="#ffffff" stroke-width="3" stroke-linecap="round"/>
+              <svg class="kpi-icon" viewBox="0 0 48 42" width="42" height="36" aria-hidden="true">
+                <path d="M24 3 45 13H3L24 3z" fill="#f59716"/>
+                <rect x="8" y="15" width="5" height="19" fill="#f59716"/>
+                <rect x="17" y="15" width="5" height="19" fill="#f59716"/>
+                <rect x="26" y="15" width="5" height="19" fill="#f59716"/>
+                <rect x="35" y="15" width="5" height="19" fill="#f59716"/>
+                <rect x="4" y="35" width="40" height="4.5" rx="1.2" fill="#f59716"/>
               </svg>
             </span>
             <span class="kpi-foot kpi-foot--stack">
-              <span id="kpi-access-1" class="kpi-sub-dark">—</span>
-              <span id="kpi-access-2" class="kpi-sub-dark">—</span>
+              <strong id="kpi-dept-val" class="kpi-line-strong">—</strong>
+              <span id="kpi-dept-sub" class="kpi-sub">—</span>
             </span>
           </div>
 
-          <!-- KPI 5 : Environnement -->
-          <div id="kpi-env" class="kpi-card">
-            <span class="kpi-title">Environnement</span>
+          <!-- KPI 5 : Région -->
+          <div id="kpi-region" class="kpi-card">
+            <span class="kpi-title">Région</span>
             <span class="kpi-center">
-              <svg class="kpi-icon" viewBox="0 0 46 42" width="40" height="36" aria-hidden="true">
-                <path d="M38 7C23 7 11 14 10 28c-.2 2.4.4 4.5 1.2 6.2 2.2.7 4.8 1 7.6.8C32 34 39 22 38 7z" fill="#63a967"/>
-                <path d="M9 36c5-7 12.5-13.5 21-18" fill="none" stroke="#ffffff" stroke-width="2.3" stroke-linecap="round"/>
-                <path d="M7.5 37.5l4.5-4.5" fill="none" stroke="#63a967" stroke-width="2.8" stroke-linecap="round"/>
+              <svg class="kpi-icon" viewBox="0 0 48 42" width="42" height="36" aria-hidden="true">
+                <path d="M4 10 18 6l12 4L44 6v26l-14 4-12-4-14 4z" fill="#63a967"/>
+                <path d="M18 6v26M30 10v26" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round"/>
               </svg>
             </span>
             <span class="kpi-foot kpi-foot--stack">
-              <span id="kpi-env-1" class="kpi-sub-dark">—</span>
-              <span id="kpi-env-2" class="kpi-sub-dark">—</span>
+              <strong id="kpi-region-val" class="kpi-line-strong">—</strong>
+              <span id="kpi-region-sub" class="kpi-sub">—</span>
             </span>
           </div>
         </section>

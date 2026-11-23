@@ -128,6 +128,8 @@ const DEFAULTS = {
     franceCenter: [46.603354, 2.385372],
     franceZoom: 5,
     planZoom: 12,
+    /** Premier aperçu hors métropole (DROM) : vue régionale centrée sur le site. */
+    overseasFirstZoom: 9,
     aerialZoom: 18,
   },
 

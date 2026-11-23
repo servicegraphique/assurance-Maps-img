@@ -8,7 +8,7 @@
   "scripts": {
     "start": "node server.js",
     "start:open": "node server.js --open",
-    "test": "node --test tests/unit/utils.test.mjs tests/unit/entreprise-api.test.mjs tests/unit/search.test.mjs tests/unit/geocoding.test.mjs tests/unit/images.test.mjs tests/unit/transport.test.mjs tests/unit/contact.test.mjs tests/unit/mapillary-config.test.mjs tests/unit/weather.test.mjs tests/unit/enrichment.test.mjs tests/embed.test.mjs",
+    "test": "node --test tests/unit/utils.test.mjs tests/unit/entreprise-api.test.mjs tests/unit/search.test.mjs tests/unit/geocoding.test.mjs tests/unit/images.test.mjs tests/unit/transport.test.mjs tests/unit/contact.test.mjs tests/unit/mapillary-config.test.mjs tests/unit/weather.test.mjs tests/unit/enrichment.test.mjs tests/unit/commune-stats.test.mjs tests/unit/map-view.test.mjs tests/embed.test.mjs",
     "test:server": "node --test tests/server.test.mjs",
     "test:css": "node tests/css.test.mjs",
     "test:boot": "node tests/boot.test.mjs",
